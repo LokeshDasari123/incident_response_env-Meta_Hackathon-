@@ -1,0 +1,187 @@
+{
+  "scenario_id": "medium_001",
+  "name": "Test-Induced Hidden Dependency Cascade",
+  "difficulty": "medium",
+  "fault_type": "network_partition",
+  "description": "A DNS resolution failure between auth-service and user-service causes cascade: api-gateway timeouts, then storefront-ui degradation. Two red herrings: CPU spike on worker-node-4 and memory warning on cache-service.",
+  "max_steps": 15,
+  "sla_breach_step": null,
+  "services": [
+    {
+      "name": "storefront-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.31,
+      "normal_mem": 0.45,
+      "incident_cpu": 0.42,
+      "incident_mem": 0.48,
+      "normal_http_rt": 120.0,
+      "incident_http_rt": 3200.0,
+      "normal_mcr": 850.0,
+      "incident_mcr": 120.0
+    },
+    {
+      "name": "api-gateway",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.28,
+      "normal_mem": 0.40,
+      "incident_cpu": 0.38,
+      "incident_mem": 0.44,
+      "normal_http_rt": 45.0,
+      "incident_http_rt": 2800.0,
+      "normal_mcr": 1200.0,
+      "incident_mcr": 95.0
+    },
+    {
+      "name": "auth-service",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.22,
+      "normal_mem": 0.38,
+      "incident_cpu": 0.25,
+      "incident_mem": 0.40,
+      "normal_consumer_rpc_rt": 15.0,
+      "incident_consumer_rpc_rt": 30000.0,
+      "normal_provider_rpc_rt": 15.0,
+      "incident_provider_rpc_rt": 29500.0,
+      "normal_mcr": 450.0,
+      "incident_mcr": 0.0,
+      "note": "auth-service itself is fine — it cannot reach user-service due to DNS"
+    },
+    {
+      "name": "user-service",
+      "is_root_cause": true,
+      "is_stateful": false,
+      "fault_type": "network_partition",
+      "normal_cpu": 0.23,
+      "normal_mem": 0.37,
+      "incident_cpu": 0.24,
+      "incident_mem": 0.38,
+      "note": "DNS entry missing after test environment cleanup. user-service is unreachable.",
+      "fault_detail": "DNS resolution failure: user-service.prod.svc.cluster.local → NXDOMAIN"
+    },
+    {
+      "name": "cache-service",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "normal_cpu": 0.20,
+      "normal_mem": 0.55,
+      "incident_cpu": 0.21,
+      "incident_mem": 0.88,
+      "red_herring_reason": "Memory warning from unrelated cache eviction policy change. Not related to incident."
+    },
+    {
+      "name": "worker-node-4",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "normal_cpu": 0.55,
+      "normal_mem": 0.62,
+      "incident_cpu": 0.96,
+      "incident_mem": 0.65,
+      "red_herring_reason": "Batch ML training job consuming CPU. Scheduled, unrelated to incident."
+    }
+  ],
+  "topology": [
+    {
+      "upstream": "storefront-ui",
+      "downstream": "api-gateway",
+      "rpc_type": "http",
+      "avg_rt_ms": 45.0
+    },
+    {
+      "upstream": "api-gateway",
+      "downstream": "auth-service",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 18.0
+    },
+    {
+      "upstream": "auth-service",
+      "downstream": "user-service",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 15.0,
+      "note": "This edge is the failure point — DNS broken"
+    }
+  ],
+  "alerts": [
+    {
+      "alert_id": "ALT-M001",
+      "service": "storefront-ui",
+      "metric": "HTTP_RT",
+      "current_value": 3200.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-M002",
+      "service": "api-gateway",
+      "metric": "HTTP_RT",
+      "current_value": 2800.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-M003",
+      "service": "api-gateway",
+      "metric": "HTTP_MCR",
+      "current_value": 95.0,
+      "threshold": 400.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-M004",
+      "service": "auth-service",
+      "metric": "consumerRPC_RT",
+      "current_value": 30000.0,
+      "threshold": 100.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-M005",
+      "service": "auth-service",
+      "metric": "providerRPC_MCR",
+      "current_value": 0.0,
+      "threshold": 200.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-M006",
+      "service": "cache-service",
+      "metric": "memory_utilization",
+      "current_value": 0.88,
+      "threshold": 0.80,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    },
+    {
+      "alert_id": "ALT-M007",
+      "service": "worker-node-4",
+      "metric": "cpu_utilization",
+      "current_value": 0.96,
+      "threshold": 0.85,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    }
+  ],
+  "timeline": [
+    {"step": 0, "event_type": "test_cleanup",  "service": "user-service",   "description": "Test environment cleanup removed DNS entry for user-service.prod"},
+    {"step": 0, "event_type": "dns_failure",   "service": "user-service",   "description": "DNS: user-service.prod.svc.cluster.local → NXDOMAIN"},
+    {"step": 0, "event_type": "timeout",       "service": "auth-service",   "description": "auth-service cannot reach user-service. All calls timing out at 30s"},
+    {"step": 0, "event_type": "cascade",       "service": "api-gateway",    "description": "api-gateway auth calls timing out. Request queue building up"},
+    {"step": 0, "event_type": "cascade",       "service": "storefront-ui",  "description": "storefront-ui experiencing HTTP_RT spike from api-gateway"},
+    {"step": 0, "event_type": "unrelated",     "service": "cache-service",  "description": "Cache eviction policy change causing memory pressure (unrelated)"},
+    {"step": 0, "event_type": "unrelated",     "service": "worker-node-4",  "description": "Batch ML job running on worker-node-4 (scheduled, unrelated)"}
+  ]
+}

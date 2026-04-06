@@ -1,0 +1,133 @@
+{
+  "scenario_id": "easy_001",
+  "name": "Change-Induced Single Service Failure",
+  "difficulty": "easy",
+  "fault_type": "misconfiguration",
+  "description": "A bad ConfigMap update to payments-db causes connection pool exhaustion, cascading HTTP_RT spikes through payments-api to checkout-ui. One red herring: unrelated CPU spike on worker-node.",
+  "max_steps": 10,
+  "sla_breach_step": null,
+  "services": [
+    {
+      "name": "checkout-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.31,
+      "normal_mem": 0.45,
+      "incident_cpu": 0.48,
+      "incident_mem": 0.50,
+      "normal_http_rt": 120.0,
+      "incident_http_rt": 2400.0,
+      "normal_mcr": 850.0,
+      "incident_mcr": 210.0
+    },
+    {
+      "name": "payments-api",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.35,
+      "normal_mem": 0.50,
+      "incident_cpu": 0.52,
+      "incident_mem": 0.58,
+      "normal_consumer_rpc_rt": 18.0,
+      "incident_consumer_rpc_rt": 1800.0,
+      "normal_mcr": 320.0,
+      "incident_mcr": 85.0
+    },
+    {
+      "name": "payments-db",
+      "is_root_cause": true,
+      "is_stateful": true,
+      "normal_cpu": 0.40,
+      "normal_mem": 0.60,
+      "incident_cpu": 0.44,
+      "incident_mem": 0.63,
+      "normal_provider_rpc_rt": 8.0,
+      "incident_provider_rpc_rt": 950.0,
+      "fault_detail": "ConfigMap connection pool limit set to 5 (was 100). All connections exhausted."
+    },
+    {
+      "name": "worker-node-4",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": false,
+      "normal_cpu": 0.55,
+      "normal_mem": 0.62,
+      "incident_cpu": 0.94,
+      "incident_mem": 0.64,
+      "red_herring_reason": "Scheduled batch job caused CPU spike. Unrelated to incident."
+    }
+  ],
+  "topology": [
+    {
+      "upstream": "checkout-ui",
+      "downstream": "payments-api",
+      "rpc_type": "http",
+      "avg_rt_ms": 120.0
+    },
+    {
+      "upstream": "payments-api",
+      "downstream": "payments-db",
+      "rpc_type": "db",
+      "avg_rt_ms": 8.0
+    }
+  ],
+  "alerts": [
+    {
+      "alert_id": "ALT-E001",
+      "service": "checkout-ui",
+      "metric": "HTTP_RT",
+      "current_value": 2400.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-E002",
+      "service": "checkout-ui",
+      "metric": "HTTP_MCR",
+      "current_value": 210.0,
+      "threshold": 400.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-E003",
+      "service": "payments-api",
+      "metric": "consumerRPC_RT",
+      "current_value": 1800.0,
+      "threshold": 100.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-E004",
+      "service": "payments-api",
+      "metric": "consumerRPC_MCR",
+      "current_value": 85.0,
+      "threshold": 200.0,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-E005",
+      "service": "worker-node-4",
+      "metric": "cpu_utilization",
+      "current_value": 0.94,
+      "threshold": 0.85,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    }
+  ],
+  "timeline": [
+    {"step": 0, "event_type": "config_change", "service": "payments-db", "description": "ConfigMap updated: max_connections=5 (operator error)"},
+    {"step": 0, "event_type": "alert_fired",   "service": "payments-db",  "description": "Connection pool exhausted"},
+    {"step": 0, "event_type": "alert_fired",   "service": "payments-api", "description": "consumerRPC_RT spiked 100x"},
+    {"step": 0, "event_type": "alert_fired",   "service": "checkout-ui",  "description": "HTTP_RT spiked 20x"},
+    {"step": 0, "event_type": "alert_fired",   "service": "worker-node-4","description": "CPU spike from batch job (unrelated)"}
+  ]
+}

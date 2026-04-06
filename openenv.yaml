@@ -1,0 +1,191 @@
+name: incident-response-env
+version: "1.0.0"
+description: >
+  A real-world OpenEnv environment that simulates production incident
+  response triage. AI agents must analyze cascading microservice failures,
+  identify root causes from noisy alert streams, and prescribe correct
+  remediation actions — exactly as an SRE does at 2am.
+
+author: incident-response-env
+license: MIT
+tags:
+  - openenv
+  - aiops
+  - sre
+  - incident-response
+  - reinforcement-learning
+  - microservices
+
+# ============================================
+# Environment Specification
+# ============================================
+environment:
+  type: http
+  base_url: http://localhost:7860
+  health_endpoint: /health
+  reset_endpoint: /reset
+  step_endpoint: /step
+  state_endpoint: /state
+  websocket_endpoint: /ws
+
+# ============================================
+# Action Space
+# ============================================
+action_space:
+  type: structured
+  description: >
+    Agent submits a structured incident triage action containing:
+    root cause identification, severity classification,
+    remediation action selection, and optional stakeholder communication.
+  fields:
+    - name: root_cause_service
+      type: string
+      description: Name of the service identified as root cause
+    - name: root_cause_type
+      type: string
+      enum: [misconfiguration, memory_leak, network_partition,
+             crash_loop, resource_exhaustion, auth_failure,
+             dependency_failure, unknown]
+    - name: severity
+      type: string
+      enum: [P0, P1, P2, P3]
+    - name: affected_services
+      type: list[string]
+      description: List of services impacted by the incident
+    - name: remediation_action
+      type: string
+      enum: [rollback, restart_service, scale_up, fix_config,
+             increase_connection_pool, flush_cache, reroute_traffic,
+             escalate, investigate_further]
+    - name: stakeholder_message
+      type: string
+      description: Optional message for stakeholders (required for P0/P1)
+    - name: confidence
+      type: float
+      description: Agent confidence score 0.0-1.0
+
+# ============================================
+# Observation Space
+# ============================================
+observation_space:
+  type: structured
+  description: >
+    Agent receives a snapshot of the incident state including
+    active alerts, service metrics, call graph topology,
+    and temporal context.
+  fields:
+    - name: alerts
+      type: list[Alert]
+      description: Active alerts with service, metric, value, threshold
+    - name: metrics
+      type: dict
+      description: Current metric readings per service
+    - name: topology
+      type: dict
+      description: Service dependency graph (upstream/downstream)
+    - name: timeline
+      type: list
+      description: Chronological sequence of events
+    - name: step
+      type: int
+      description: Current step in the episode
+    - name: time_pressure
+      type: float
+      description: Simulated SLA breach urgency 0.0-1.0
+    - name: previous_actions
+      type: list
+      description: History of actions taken this episode
+
+# ============================================
+# Tasks
+# ============================================
+tasks:
+  - id: easy
+    name: Change-Induced Single Service Failure
+    description: >
+      A bad ConfigMap update causes payments-service to fail.
+      Agent must traverse a 3-service call graph to identify
+      the misconfiguration as root cause.
+    difficulty: easy
+    max_steps: 10
+    expected_score_gpt4: 0.75
+    expected_score_random: 0.15
+    grader: graders.easy_grader.EasyGrader
+
+  - id: medium
+    name: Test-Induced Hidden Dependency Cascade
+    description: >
+      DNS resolution failure creates a cascade across 3 services
+      with a CPU spike red herring on an unrelated node.
+      Agent must filter noise and find the hidden dependency.
+    difficulty: medium
+    max_steps: 15
+    expected_score_gpt4: 0.52
+    expected_score_random: 0.10
+    grader: graders.medium_grader.MediumGrader
+
+  - id: hard
+    name: Process-Induced Cascading Failure with SLA Pressure
+    description: >
+      Memory leak triggers crash-loop cascading across 5 services.
+      Misleading network metrics act as red herrings.
+      Agent must find root cause, prioritize remediation,
+      and draft stakeholder communication under SLA pressure.
+    difficulty: hard
+    max_steps: 20
+    expected_score_gpt4: 0.31
+    expected_score_random: 0.05
+    grader: graders.hard_grader.HardGrader
+
+# ============================================
+# Reward Function
+# ============================================
+reward:
+  type: weighted_multidimensional
+  components:
+    root_cause_score:
+      weight: 0.35
+      description: Correct root cause service and type identified
+    action_score:
+      weight: 0.25
+      description: Correct remediation action selected
+    severity_score:
+      weight: 0.20
+      description: Correct P0/P1/P2/P3 severity assigned
+    communication_score:
+      weight: 0.10
+      description: Quality of stakeholder message (P0/P1 only)
+    speed_bonus:
+      weight: 0.10
+      description: Resolved within SLA time budget
+  penalties:
+    false_positive: -0.15
+    wrong_action: -0.20
+    missed_escalation: -0.25
+  range: [0.0, 1.0]
+
+# ============================================
+# Hardware Requirements
+# ============================================
+hardware:
+  min_vcpu: 2
+  min_memory_gb: 4
+  recommended_vcpu: 2
+  recommended_memory_gb: 8
+
+# ============================================
+# Data Attribution
+# ============================================
+data_sources:
+  - name: Alibaba Cluster Trace (microservices-v2021)
+    url: https://github.com/alibaba/clusterdata
+    license: Research use
+    usage: Metric patterns and service topology baselines
+  - name: Microsoft AIOpsLab
+    url: https://github.com/microsoft/AIOpsLab
+    license: MIT
+    usage: Fault taxonomy and incident categories
+  - name: Google SRE Book
+    url: https://sre.google/sre-book/
+    license: CC BY-NC-ND 4.0
+    usage: Incident scenario narratives and grader rubrics

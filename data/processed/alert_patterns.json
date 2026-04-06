@@ -1,0 +1,26 @@
+{
+  "source": "alibaba-real",
+  "patterns": {
+    "consumerRPC_RT": {
+      "p50": 11.27,
+      "p95": 66.47,
+      "p99": 157.83,
+      "spike_ratio": 14.0,
+      "alert_threshold": 66.47
+    },
+    "providerRPC_RT": {
+      "p50": 12.71,
+      "p95": 177.48,
+      "p99": 293.31,
+      "spike_ratio": 23.08,
+      "alert_threshold": 177.48
+    },
+    "consumerRPC_MCR": {
+      "p50": 31.22,
+      "p95": 285.61,
+      "p99": 498.85,
+      "spike_ratio": 15.98,
+      "alert_threshold": 285.61
+    }
+  }
+}

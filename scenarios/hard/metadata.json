@@ -1,0 +1,75 @@
+{
+  "scenario_id": "hard_001",
+  "difficulty": "hard",
+  "ground_truth": {
+    "root_cause_service": "payments-db",
+    "root_cause_type": "memory_leak",
+    "severity": "P0",
+    "affected_services": ["payments-db","cache-service","order-service","api-gateway","storefront-ui"],
+    "correct_actions": ["restart_service", "escalate"],
+    "best_action": "restart_service",
+    "requires_stakeholder_message": true,
+    "red_herring_services": ["network-switch-03", "worker-node-7"],
+    "sla_breach_step": 6,
+    "remediation_order": ["payments-db","cache-service","order-service","api-gateway","storefront-ui"]
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "exact_match": "payments-db",
+      "partial_credit": {"cache-service": 0.10, "order-service": 0.05},
+      "weight": 0.20
+    },
+    "root_cause_type": {
+      "exact_match": "memory_leak",
+      "partial_credit": {"crash_loop": 0.35, "resource_exhaustion": 0.30, "unknown": 0.02},
+      "weight": 0.15
+    },
+    "severity": {
+      "exact_match": "P0",
+      "partial_credit": {"P1": 0.20},
+      "weight": 0.10
+    },
+    "affected_services": {
+      "required": ["payments-db","cache-service","order-service","api-gateway","storefront-ui"],
+      "penalize_if_includes": ["network-switch-03","worker-node-7"],
+      "penalty_per_wrong": 0.20,
+      "weight": 0.20
+    },
+    "remediation_action": {
+      "full_credit": ["restart_service", "escalate"],
+      "partial_credit": {
+        "scale_up": 0.15,
+        "reroute_traffic": 0.20,
+        "investigate_further": 0.05
+      },
+      "zero_credit": ["flush_cache", "fix_config", "rollback"],
+      "penalty": ["rollback"],
+      "weight": 0.15
+    },
+    "stakeholder_message": {
+      "required": true,
+      "must_contain_any": ["payment", "revenue", "investigating", "P0", "escalat", "ETA", "memory", "crash"],
+      "quality_bonus_keywords": ["OOM", "memory leak", "payments-db", "5 services"],
+      "weight": 0.15
+    },
+    "sla_pressure": {
+      "description": "Penalty applied if no meaningful action by sla_breach_step",
+      "penalty_if_no_action_by_step": 6,
+      "penalty_amount": 0.20
+    },
+    "missed_escalation": {
+      "description": "P0 without stakeholder message gets hard penalty",
+      "penalty": 0.30
+    },
+    "speed_bonus": {
+      "full_bonus_within_steps": 4,
+      "half_bonus_within_steps": 7,
+      "weight": 0.05
+    }
+  },
+  "expected_scores": {
+    "gpt4o":    0.38,
+    "llama70b": 0.30,
+    "random":   0.05
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "source": "alibaba-real",
+  "baselines": {
+    "b222f0cceb769150": {
+      "cpu_mean": 0.787,
+      "cpu_std": 0.0,
+      "mem_mean": 2091818.182,
+      "mem_std": 1122504.505,
+      "cpu_spike": 0.788,
+      "mem_spike": 4898079.444
+    },
+    "3cfbd60918ac2eeb": {
+      "cpu_mean": 0.558,
+      "cpu_std": 0.0,
+      "mem_mean": 1521000.0,
+      "mem_std": 840600.975,
+      "cpu_spike": 0.559,
+      "mem_spike": 3622502.439
+    },
+    "888db7951f7ad46c": {
+      "cpu_mean": 0.545,
+      "cpu_std": 0.001,
+      "mem_mean": 1920000.0,
+      "mem_std": 1027229.283,
+      "cpu_spike": 0.548,
+      "mem_spike": 4488073.208
+    },
+    "88cc8ebda74ad9e0": {
+      "cpu_mean": 0.506,
+      "cpu_std": 0.001,
+      "mem_mean": 2499000.0,
+      "mem_std": 987527.215,
+      "cpu_spike": 0.509,
+      "mem_spike": 4967818.037
+    },
+    "608333154fc3e099": {
+      "cpu_mean": 0.641,
+      "cpu_std": 0.0,
+      "mem_mean": 1470000.0,
+      "mem_std": 1068644.001,
+      "cpu_spike": 0.642,
+      "mem_spike": 4141610.001
+    },
+    "846de0bacfe03c96": {
+      "cpu_mean": 0.771,
+      "cpu_std": 0.001,
+      "mem_mean": 1663333.333,
+      "mem_std": 1015701.728,
+      "cpu_spike": 0.773,
+      "mem_spike": 4202587.653
+    },
+    "b6b8f21f624a8186": {
+      "cpu_mean": 0.688,
+      "cpu_std": 0.001,
+      "mem_mean": 1986666.667,
+      "mem_std": 1241994.364,
+      "cpu_spike": 0.69,
+      "mem_spike": 5091652.576
+    },
+    "443a0f29443d7edc": {
+      "cpu_mean": 0.396,
+      "cpu_std": 0.001,
+      "mem_mean": 1816666.667,
+      "mem_std": 1126110.563,
+      "cpu_spike": 0.399,
+      "mem_spike": 4631943.074
+    },
+    "8d34a05cbbba20e6": {
+      "cpu_mean": 0.897,
+      "cpu_std": 0.0,
+      "mem_mean": 2053333.333,
+      "mem_std": 797981.829,
+      "cpu_spike": 0.898,
+      "mem_spike": 4048287.907
+    },
+    "acea8ce8e18e79ce": {
+      "cpu_mean": 0.632,
+      "cpu_std": 0.002,
+      "mem_mean": 1973333.333,
+      "mem_std": 1239637.044,
+      "cpu_spike": 0.637,
+      "mem_spike": 5072425.942
+    },
+    "b08f6be76194ab5d": {
+      "cpu_mean": 0.691,
+      "cpu_std": 0.0,
+      "mem_mean": 1926666.667,
+      "mem_std": 1114831.826,
+      "cpu_spike": 0.692,
+      "mem_spike": 4713746.231
+    },
+    "8f7da4d23b808750": {
+      "cpu_mean": 0.665,
+      "cpu_std": 0.0,
+      "mem_mean": 2133333.333,
+      "mem_std": 1228484.839,
+      "cpu_spike": 0.666,
+      "mem_spike": 5204545.431
+    }
+  }
+}

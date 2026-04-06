@@ -1,0 +1,365 @@
+{
+  "source": "alibaba-real",
+  "edges": [
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "59dc80772dd41a20",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "e64265b1b0dc48be",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "20119b0b7869f98a",
+      "downstream": "2ce693423feaff34",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 467.0
+    },
+    {
+      "upstream": "20119b0b7869f98a",
+      "downstream": "95a823f303de7487",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 466.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "0b8b98381d43e7b3",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 157.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "7f2e118b0388e346",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "4ab265f54516248e",
+      "downstream": "7f2e118b0388e346",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 9.0
+    },
+    {
+      "upstream": "4ab265f54516248e",
+      "downstream": "9aee6b1bcdf617d8",
+      "rpc_type": "http",
+      "avg_rt_ms": 20.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "d372e0e375a89296",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 208.0
+    },
+    {
+      "upstream": "4ab265f54516248e",
+      "downstream": "40832d36b6fe86d8",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 208.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "b9516b9065e6693f",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 65.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "37eaebef18d7b368",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 66.0
+    },
+    {
+      "upstream": "4ab265f54516248e",
+      "downstream": "47e12601ded1e5b1",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 8.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "14e30cd163c73291",
+      "rpc_type": "http",
+      "avg_rt_ms": 15.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "88548bde68db3ce9",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 13.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "b0d07152e1ff0129",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 25.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "fd3010e311838985",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 28.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "1d062b8557b4a34a",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 19.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "75584eb25d9e0846",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 14.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "603397982129ca7e",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "ea2b491fd5069598",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "81073449450cc616",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 6.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "19bbbedd43d8c56c",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 2.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "22769a081964f9ad",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 32.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "ba157fce6191bf75",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 3.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "6184be0ba70baacf",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "9a9e8613b6d7d1b5",
+      "downstream": "22769a081964f9ad",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 5.0
+    },
+    {
+      "upstream": "3cab0a98767379fb",
+      "downstream": "1cac88fa9b97a74c",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 37.0
+    },
+    {
+      "upstream": "b5363262982f9dde",
+      "downstream": "2516f64d73c2dc4e",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "46d058bbf56730b6",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "4d339580a884a171",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 381.0
+    },
+    {
+      "upstream": "3cab0a98767379fb",
+      "downstream": "dd3e967cde542fcf",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 372.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "1dd49ccb02c534c2",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 15.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "6a313f2be81036de",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 68.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "fec7fa5659bcaad3",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 207.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "d3fba112649c5cf1",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "a2fdcd8a44f3b070",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 2.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "107ccfb35b056a22",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 65.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "bdd9dafbbdcbd382",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 74.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "d1d15d8209167ad5",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 82.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "373d34a13c6a1f70",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 122.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "c2b4c3c84f1ae3cb",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 419.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "1c2108b6b2a6723d",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 9.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "9aee6b1bcdf617d8",
+      "rpc_type": "http",
+      "avg_rt_ms": 6.0
+    },
+    {
+      "upstream": "75e56c8fbb9336eb",
+      "downstream": "377021da55cae143",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 58.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "509172abd4595cbe",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 41.0
+    },
+    {
+      "upstream": "4ab265f54516248e",
+      "downstream": "593ce95b735b89d6",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 58.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "2f9694dcb4f5a249",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 104.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "4de3554ec82fb8c0",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 71.0
+    },
+    {
+      "upstream": "95a6f7f8345e2eca",
+      "downstream": "e6f905f567fe1585",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 5.0
+    },
+    {
+      "upstream": "63b8a25a4a9f80c7",
+      "downstream": "6184be0ba70baacf",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "63b8a25a4a9f80c7",
+      "downstream": "53a5213f81d19ebd",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    },
+    {
+      "upstream": "adc1fdeea203800c",
+      "downstream": "bf74c44937d17ecb",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 91.0
+    },
+    {
+      "upstream": "6da93e1b8565f05e",
+      "downstream": "aef50af91caf3b80",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 13.0
+    },
+    {
+      "upstream": "e6c95bef37d936eb",
+      "downstream": "9e00536c9a1a0a27",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 54.0
+    },
+    {
+      "upstream": "6da93e1b8565f05e",
+      "downstream": "40832d36b6fe86d8",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 53.0
+    },
+    {
+      "upstream": "091794afdcf1abba",
+      "downstream": "ef9ea1ccc990f7ce",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 0.0
+    },
+    {
+      "upstream": "091794afdcf1abba",
+      "downstream": "7241bc475bbb81d8",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 0.0
+    },
+    {
+      "upstream": "091794afdcf1abba",
+      "downstream": "4fd945666e36e6de",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 0.0
+    },
+    {
+      "upstream": "6da93e1b8565f05e",
+      "downstream": "1cf3ca6c5a0e5cfe",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 1.0
+    }
+  ]
+}

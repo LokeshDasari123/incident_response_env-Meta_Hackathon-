@@ -1,0 +1,132 @@
+{
+  "scenario_id": "hard_001",
+  "name": "Process-Induced Cascading Failure with SLA Pressure",
+  "difficulty": "hard",
+  "fault_type": "memory_leak",
+  "description": "Automation bug triggers memory leak on payments-db. Leak causes OOM crash-loop, cascading across 5 services. Misleading network latency alerts and CPU spikes act as red herrings. SLA breach in 6 steps. Agent must find root cause, correct priority order, and draft stakeholder message.",
+  "max_steps": 20,
+  "sla_breach_step": 6,
+  "time_pressure_escalation": true,
+  "services": [
+    {
+      "name": "storefront-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.31,
+      "normal_mem": 0.45,
+      "incident_cpu": 0.55,
+      "incident_mem": 0.52,
+      "normal_http_rt": 120.0,
+      "incident_http_rt": 45000.0,
+      "normal_mcr": 850.0,
+      "incident_mcr": 8.0,
+      "status": "degraded"
+    },
+    {
+      "name": "api-gateway",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.28,
+      "normal_mem": 0.40,
+      "incident_cpu": 0.62,
+      "incident_mem": 0.48,
+      "normal_http_rt": 45.0,
+      "incident_http_rt": 42000.0,
+      "normal_mcr": 1200.0,
+      "incident_mcr": 5.0,
+      "status": "degraded"
+    },
+    {
+      "name": "order-service",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.27,
+      "normal_mem": 0.41,
+      "incident_cpu": 0.58,
+      "incident_mem": 0.50,
+      "normal_consumer_rpc_rt": 35.0,
+      "incident_consumer_rpc_rt": 38000.0,
+      "normal_mcr": 380.0,
+      "incident_mcr": 3.0,
+      "status": "degraded"
+    },
+    {
+      "name": "cache-service",
+      "is_root_cause": false,
+      "is_stateful": true,
+      "normal_cpu": 0.20,
+      "normal_mem": 0.55,
+      "incident_cpu": 0.22,
+      "incident_mem": 0.58,
+      "normal_consumer_rpc_rt": 3.0,
+      "incident_consumer_rpc_rt": 35000.0,
+      "normal_mcr": 2800.0,
+      "incident_mcr": 0.0,
+      "status": "degraded",
+      "note": "cache-service downstream of payments-db. Shows as degraded but not root cause."
+    },
+    {
+      "name": "payments-db",
+      "is_root_cause": true,
+      "is_stateful": true,
+      "normal_cpu": 0.40,
+      "normal_mem": 0.60,
+      "incident_cpu": 0.41,
+      "incident_mem": 0.99,
+      "crash_loop": true,
+      "restart_count": 7,
+      "normal_provider_rpc_rt": 8.0,
+      "incident_provider_rpc_rt": 0.0,
+      "fault_detail": "Automation script bug: duplicate turndown request sent. Memory eviction disabled. OOM kill loop every 45s.",
+      "status": "crash-looping"
+    },
+    {
+      "name": "network-switch-03",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "normal_latency_ms": 0.5,
+      "incident_latency_ms": 2.8,
+      "red_herring_reason": "Network switch showing elevated latency due to traffic rerouting around crash-looping db. Effect, not cause."
+    },
+    {
+      "name": "worker-node-7",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "normal_cpu": 0.48,
+      "incident_cpu": 0.97,
+      "red_herring_reason": "payments-db crash-loops causing rapid container restarts consuming CPU on this node. Effect of crash-loop, not root cause."
+    }
+  ],
+  "topology": [
+    {"upstream": "storefront-ui",  "downstream": "api-gateway",    "rpc_type": "http", "avg_rt_ms": 45.0},
+    {"upstream": "api-gateway",    "downstream": "order-service",  "rpc_type": "rpc",  "avg_rt_ms": 35.0},
+    {"upstream": "api-gateway",    "downstream": "cache-service",  "rpc_type": "mc",   "avg_rt_ms": 3.0},
+    {"upstream": "order-service",  "downstream": "payments-db",    "rpc_type": "db",   "avg_rt_ms": 8.0},
+    {"upstream": "cache-service",  "downstream": "payments-db",    "rpc_type": "db",   "avg_rt_ms": 8.0}
+  ],
+  "alerts": [
+    {"alert_id": "ALT-H001", "service": "storefront-ui",  "metric": "HTTP_RT",           "current_value": 45000.0, "threshold": 500.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H002", "service": "storefront-ui",  "metric": "HTTP_MCR",          "current_value": 8.0,     "threshold": 400.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H003", "service": "api-gateway",    "metric": "HTTP_RT",           "current_value": 42000.0, "threshold": 500.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H004", "service": "api-gateway",    "metric": "HTTP_MCR",          "current_value": 5.0,     "threshold": 400.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H005", "service": "order-service",  "metric": "consumerRPC_RT",    "current_value": 38000.0, "threshold": 100.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H006", "service": "cache-service",  "metric": "consumerRPC_RT",    "current_value": 35000.0, "threshold": 100.0,  "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H007", "service": "payments-db",    "metric": "memory_utilization","current_value": 0.99,    "threshold": 0.85,   "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H008", "service": "payments-db",    "metric": "restart_count",     "current_value": 7.0,    "threshold": 3.0,    "severity": "critical", "fired_at_step": 0, "is_red_herring": false},
+    {"alert_id": "ALT-H009", "service": "network-switch-03","metric": "latency_ms",      "current_value": 2.8,    "threshold": 1.0,    "severity": "warning",  "fired_at_step": 0, "is_red_herring": true},
+    {"alert_id": "ALT-H010", "service": "worker-node-7",  "metric": "cpu_utilization",   "current_value": 0.97,   "threshold": 0.85,   "severity": "warning",  "fired_at_step": 0, "is_red_herring": true}
+  ],
+  "timeline": [
+    {"step": 0, "event_type": "automation_bug",   "service": "payments-db",     "description": "Duplicate turndown request sent. Memory eviction flag set to false."},
+    {"step": 0, "event_type": "memory_leak_start","service": "payments-db",     "description": "Memory utilization climbing: 0.60 → 0.99 in 3 minutes"},
+    {"step": 0, "event_type": "oom_kill",         "service": "payments-db",     "description": "OOM kill #1. Container restarting. ETA: 45s"},
+    {"step": 0, "event_type": "cascade",          "service": "cache-service",   "description": "cache-service cannot reach payments-db during restart"},
+    {"step": 0, "event_type": "cascade",          "service": "order-service",   "description": "order-service payments-db calls failing"},
+    {"step": 0, "event_type": "cascade",          "service": "api-gateway",     "description": "api-gateway upstream timeout accumulation"},
+    {"step": 0, "event_type": "cascade",          "service": "storefront-ui",   "description": "storefront-ui user-facing degradation. Revenue impact started."},
+    {"step": 0, "event_type": "red_herring",      "service": "network-switch-03","description": "Network switch showing latency: rerouted traffic from crash-loops"},
+    {"step": 0, "event_type": "red_herring",      "service": "worker-node-7",   "description": "CPU spike from rapid container restarts"},
+    {"step": 3, "event_type": "oom_kill",         "service": "payments-db",     "description": "OOM kill #4. Still crash-looping."},
+    {"step": 6, "event_type": "sla_breach",       "service": "storefront-ui",   "description": "SLA BREACH: Revenue impact threshold exceeded. Escalation mandatory."}
+  ]
+}

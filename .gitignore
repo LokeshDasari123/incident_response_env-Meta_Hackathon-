@@ -1,0 +1,41 @@
+﻿# ── Virtual environment ───────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Raw Alibaba data (too large for git — 2.4GB) ─────
+data/raw/
+
+# ── Python cache ──────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# ── Environment secrets ───────────────────────────────
+.env
+
+# ── IDE ───────────────────────────────────────────────
+.vscode/
+.idea/
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Test artifacts ────────────────────────────────────
+.coverage
+htmlcov/
+
+# ── Docker ────────────────────────────────────────────
+*.tar
+*.ps1
+structure.txt
+venv/
+
+*.ps1
+structure.txt

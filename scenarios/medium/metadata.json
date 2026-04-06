@@ -1,0 +1,63 @@
+{
+  "scenario_id": "medium_001",
+  "difficulty": "medium",
+  "ground_truth": {
+    "root_cause_service": "user-service",
+    "root_cause_type": "network_partition",
+    "severity": "P1",
+    "affected_services": ["user-service", "auth-service", "api-gateway", "storefront-ui"],
+    "correct_actions": ["fix_config", "escalate"],
+    "best_action": "fix_config",
+    "requires_stakeholder_message": true,
+    "red_herring_services": ["cache-service", "worker-node-4"]
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "exact_match": "user-service",
+      "partial_credit": {"auth-service": 0.3},
+      "weight": 0.30
+    },
+    "root_cause_type": {
+      "exact_match": "network_partition",
+      "partial_credit": {"dependency_failure": 0.4, "unknown": 0.1},
+      "weight": 0.10
+    },
+    "severity": {
+      "exact_match": "P1",
+      "partial_credit": {"P0": 0.3, "P2": 0.2},
+      "weight": 0.15
+    },
+    "affected_services": {
+      "required": ["user-service", "auth-service", "api-gateway", "storefront-ui"],
+      "penalize_if_includes": ["cache-service", "worker-node-4"],
+      "penalty_per_wrong": 0.15,
+      "weight": 0.10
+    },
+    "remediation_action": {
+      "full_credit": ["fix_config"],
+      "partial_credit": {
+        "escalate": 0.5,
+        "restart_service": 0.2,
+        "investigate_further": 0.1
+      },
+      "zero_credit": ["rollback", "scale_up", "flush_cache"],
+      "penalty": ["reroute_traffic"],
+      "weight": 0.20
+    },
+    "stakeholder_message": {
+      "required": true,
+      "must_contain_any": ["auth", "login", "user", "DNS", "investigating", "ETA"],
+      "weight": 0.10
+    },
+    "speed_bonus": {
+      "full_bonus_within_steps": 6,
+      "half_bonus_within_steps": 10,
+      "weight": 0.05
+    }
+  },
+  "expected_scores": {
+    "gpt4o":    0.52,
+    "llama70b": 0.45,
+    "random":   0.10
+  }
+}

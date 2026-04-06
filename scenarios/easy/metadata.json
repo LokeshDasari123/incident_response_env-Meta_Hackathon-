@@ -1,0 +1,58 @@
+{
+  "scenario_id": "easy_001",
+  "difficulty": "easy",
+  "ground_truth": {
+    "root_cause_service": "payments-db",
+    "root_cause_type": "misconfiguration",
+    "severity": "P0",
+    "affected_services": ["payments-db", "payments-api", "checkout-ui"],
+    "correct_actions": ["fix_config", "rollback"],
+    "best_action": "fix_config",
+    "requires_stakeholder_message": true,
+    "red_herring_services": ["worker-node-4"]
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "exact_match": "payments-db",
+      "partial_credit": [],
+      "weight": 0.35
+    },
+    "root_cause_type": {
+      "exact_match": "misconfiguration",
+      "partial_credit": ["dependency_failure"],
+      "weight": 0.0
+    },
+    "severity": {
+      "exact_match": "P0",
+      "partial_credit": {"P1": 0.5},
+      "weight": 0.20
+    },
+    "affected_services": {
+      "required": ["payments-db", "payments-api", "checkout-ui"],
+      "penalize_if_includes": ["worker-node-4"],
+      "weight": 0.0
+    },
+    "remediation_action": {
+      "full_credit": ["fix_config"],
+      "partial_credit": {"rollback": 0.7, "restart_service": 0.3},
+      "zero_credit": ["scale_up", "flush_cache", "investigate_further"],
+      "penalty": ["reroute_traffic"],
+      "weight": 0.25
+    },
+    "stakeholder_message": {
+      "required": true,
+      "must_contain_any": ["payment", "investigating", "ETA", "resolution"],
+      "weight": 0.10
+    },
+    "speed_bonus": {
+      "full_bonus_within_steps": 4,
+      "half_bonus_within_steps": 7,
+      "weight": 0.10
+    }
+  },
+  "expected_scores": {
+    "gpt4o":   0.75,
+    "llama70b": 0.60,
+    "random":  0.15
+  }
+}
