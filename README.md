@@ -2,7 +2,7 @@
 title: Incident Response OpenEnv
 emoji: 🚨
 colorFrom: red
-colorTo: orange
+colorTo: yellow
 sdk: docker
 pinned: false
 tags:
@@ -161,3 +161,4 @@ pytest tests/ -v
 - **Alibaba Cluster Trace v2021** â€” metric patterns and service topology
 - **Microsoft AIOpsLab** â€” fault injection taxonomy
 - **Google SRE Book (Ch 13â€“16)** â€” incident scenario narratives and grader rubrics
+
