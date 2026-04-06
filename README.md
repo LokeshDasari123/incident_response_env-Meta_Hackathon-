@@ -1,6 +1,19 @@
-# 🚨 Incident Response OpenEnv
+﻿---
+title: Incident Response OpenEnv
+emoji: 🚨
+colorFrom: red
+colorTo: orange
+sdk: docker
+pinned: false
+tags:
+  - openenv
+  - reinforcement-learning
+  - aiops
+  - incident-response
+---
+# ðŸš¨ Incident Response OpenEnv
 
-> A real-world OpenEnv environment where AI agents triage production incidents —
+> A real-world OpenEnv environment where AI agents triage production incidents â€”
 > exactly like an SRE at 2am.
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-1.0.0-blue)](https://github.com/meta-pytorch/OpenEnv)
@@ -9,26 +22,26 @@
 
 ---
 
-## 🎯 What This Environment Simulates
+## ðŸŽ¯ What This Environment Simulates
 
 Every engineering team running microservices faces **production incidents**:
 cascading failures, noisy alert storms, and pressure to resolve issues before
-SLA breaches. Today this is done by on-call SREs at 2am — manually, under stress.
+SLA breaches. Today this is done by on-call SREs at 2am â€” manually, under stress.
 
 This environment trains AI agents to:
 1. **Analyze** cascading alert storms across microservice call graphs
-2. **Filter noise** — identify red herring alerts unrelated to the incident
+2. **Filter noise** â€” identify red herring alerts unrelated to the incident
 3. **Identify root cause** by traversing the dependency graph inward
 4. **Classify severity** (P0/P1/P2/P3) and prescribe correct remediation
 5. **Communicate** to stakeholders under SLA time pressure
 
 **Data foundation:** Scenarios are modeled on real Alibaba microservices cluster
 traces (v2021), Microsoft AIOpsLab fault taxonomy, and Google SRE Book incident
-patterns (Ch 13–16).
+patterns (Ch 13â€“16).
 
 ---
 
-## 🏗️ Action Space
+## ðŸ—ï¸ Action Space
 
 The agent submits a structured `IncidentAction` each step:
 
@@ -40,12 +53,12 @@ The agent submits a structured `IncidentAction` each step:
 | `affected_services` | list[str] | All impacted services |
 | `remediation_action` | enum | rollback / restart_service / fix_config / escalate / ... |
 | `stakeholder_message` | string | Required for P0/P1 incidents |
-| `confidence` | float | Agent confidence 0.0–1.0 |
+| `confidence` | float | Agent confidence 0.0â€“1.0 |
 | `reasoning` | string | Chain of thought (used for partial credit) |
 
 ---
 
-## 👁️ Observation Space
+## ðŸ‘ï¸ Observation Space
 
 Each step the agent receives:
 
@@ -53,51 +66,51 @@ Each step the agent receives:
 |---|---|
 | `alerts` | Active monitoring alerts (service, metric, value, threshold) |
 | `metrics` | Current CPU/memory/RT per service |
-| `topology` | Service call graph edges (upstream → downstream) |
+| `topology` | Service call graph edges (upstream â†’ downstream) |
 | `timeline` | Chronological incident events |
-| `time_pressure` | SLA breach urgency 0.0–1.0 |
+| `time_pressure` | SLA breach urgency 0.0â€“1.0 |
 | `sla_breach_in_steps` | Steps until SLA breach (hard task only) |
 
 ---
 
-## 📋 Tasks
+## ðŸ“‹ Tasks
 
-### Task 1: Easy — Change-Induced Single Service Failure
+### Task 1: Easy â€” Change-Induced Single Service Failure
 - **Fault:** Bad ConfigMap update to `payments-db`
-- **Cascade:** `payments-db` → `payments-api` → `checkout-ui`
+- **Cascade:** `payments-db` â†’ `payments-api` â†’ `checkout-ui`
 - **Red herring:** CPU spike on `worker-node-4` (unrelated batch job)
 - **Expected GPT-4 score:** 0.75 | **Random:** 0.15
 
-### Task 2: Medium — Test-Induced Hidden Dependency Cascade
-- **Fault:** DNS resolution failure breaks `auth-service` → `user-service`
-- **Cascade:** `user-service` → `auth-service` → `api-gateway` → `storefront-ui`
+### Task 2: Medium â€” Test-Induced Hidden Dependency Cascade
+- **Fault:** DNS resolution failure breaks `auth-service` â†’ `user-service`
+- **Cascade:** `user-service` â†’ `auth-service` â†’ `api-gateway` â†’ `storefront-ui`
 - **Red herrings:** CPU spike + memory warning (both unrelated)
 - **Expected GPT-4 score:** 0.52 | **Random:** 0.10
 
-### Task 3: Hard — Process-Induced Cascading Failure with SLA Pressure
+### Task 3: Hard â€” Process-Induced Cascading Failure with SLA Pressure
 - **Fault:** Memory leak + crash-loop on `payments-db`
 - **Cascade:** Across 5 services. Misleading network latency alerts.
-- **SLA breach at step 6** — escalation mandatory
+- **SLA breach at step 6** â€” escalation mandatory
 - **Expected GPT-4 score:** 0.31 | **Random:** 0.05
 
 ---
 
-## 🎁 Reward Function
+## ðŸŽ Reward Function
 
 ```
-score = root_cause × 0.35
-      + action      × 0.25
-      + severity    × 0.20
-      + comms       × 0.10
-      + speed       × 0.10
-      − false_positive × 0.15
-      − wrong_action   × 0.20
-      − missed_escalation × 0.25
+score = root_cause Ã— 0.35
+      + action      Ã— 0.25
+      + severity    Ã— 0.20
+      + comms       Ã— 0.10
+      + speed       Ã— 0.10
+      âˆ’ false_positive Ã— 0.15
+      âˆ’ wrong_action   Ã— 0.20
+      âˆ’ missed_escalation Ã— 0.25
 ```
 
 ---
 
-## 🚀 Quick Start
+## ðŸš€ Quick Start
 
 ```bash
 # Install
@@ -116,7 +129,7 @@ export API_BASE_URL=https://router.huggingface.co/v1
 python inference.py
 ```
 
-## 🐳 Docker
+## ðŸ³ Docker
 
 ```bash
 docker build -t incident-response-env .
@@ -125,7 +138,7 @@ docker run -p 7860:7860 \
   incident-response-env
 ```
 
-## 🧪 Tests
+## ðŸ§ª Tests
 
 ```bash
 pytest tests/ -v
@@ -133,7 +146,7 @@ pytest tests/ -v
 
 ---
 
-## 📊 Baseline Scores
+## ðŸ“Š Baseline Scores
 
 | Task | Llama-3.3-70B | Random |
 |---|---|---|
@@ -143,8 +156,8 @@ pytest tests/ -v
 
 ---
 
-## 📚 Data Attribution
+## ðŸ“š Data Attribution
 
-- **Alibaba Cluster Trace v2021** — metric patterns and service topology
-- **Microsoft AIOpsLab** — fault injection taxonomy
-- **Google SRE Book (Ch 13–16)** — incident scenario narratives and grader rubrics
+- **Alibaba Cluster Trace v2021** â€” metric patterns and service topology
+- **Microsoft AIOpsLab** â€” fault injection taxonomy
+- **Google SRE Book (Ch 13â€“16)** â€” incident scenario narratives and grader rubrics
