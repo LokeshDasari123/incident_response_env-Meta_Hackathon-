@@ -1,16 +1,4 @@
----
-title: Incident Response OpenEnv
-emoji: 🚨
-colorFrom: red
-colorTo: yellow
-sdk: docker
-pinned: false
-tags:
-  - openenv
-  - reinforcement-learning
-  - aiops
-  - incident-response
----
+
 # 🚨 Incident Response OpenEnv
 
 > OpenEnv-compatible RL environment for real-world incident response triage.
