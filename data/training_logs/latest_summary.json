@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "episode": 199,
   "total": 200,
   "progress_pct": 99.5,
@@ -327,9 +328,97 @@
         1.0,
         1.0,
         0.9375,
+=======
+  "episode": 49,
+  "elapsed_s": 1.5,
+  "per_task": {
+    "easy": {
+      "rewards": [
+        0.45,
+        0.65,
+        0.7,
+        0.82,
+        0.525,
+        0.725,
+        0.575,
+        0.7,
+        0.845,
+        0.52
+      ],
+      "rc_scores": [
+        0.1,
+        0.1,
+        0.375,
+        0.1429,
+        0.2,
+        0.6667,
+        0.3,
         1.0,
+        0.1667,
+        0.1
+      ],
+      "avg_last10": 0.651,
+      "avg_last50": 0.651,
+      "best": 0.845,
+      "count": 10,
+      "trend": "improving",
+      "strategies": {
+        "topology_first": 10
+      }
+    },
+    "medium": {
+      "rewards": [
+        0.4975,
+        0.5975,
+        0.765,
+        0.665,
+        0.5425,
+        0.74,
+        0.66,
+        0.555,
+        0.77,
+        0.82
+      ],
+      "rc_scores": [
+        0.2,
+        0.2,
+        0.375,
+        0.2667,
+        0.2667,
+        0.3333,
+        0.4,
+        0.4,
+        0.4286,
+        0.5
+      ],
+      "avg_last10": 0.6613,
+      "avg_last50": 0.6613,
+      "best": 0.82,
+      "count": 10,
+      "trend": "improving",
+      "strategies": {
+        "topology_first": 10
+      }
+    },
+    "hard": {
+      "rewards": [
+        0.635,
+        0.565,
+        0.77,
+        0.7075,
+        0.718,
+        0.7925,
+        0.87,
+        0.85,
         0.975,
+        0.9,
+        0.9,
+        0.925,
+        0.905,
+>>>>>>> Stashed changes
         1.0,
+        1.0,
+<<<<<<< Updated upstream
         1.0,
         0.95,
         1.0,
@@ -360,10 +449,26 @@
         0.95,
         1.0,
         0.97,
+=======
+        0.9,
+        0.95,
+        0.95,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.925,
+        1.0,
+        1.0,
+        0.9,
+        0.9,
+>>>>>>> Stashed changes
         1.0,
         1.0
       ],
       "rc_scores": [
+<<<<<<< Updated upstream
         0.705,
         0.8,
         0.8025,
@@ -449,5 +554,219 @@
   },
   "challenger_wins_total": 1544,
   "updated_at": "2026-04-25T09:36:22.975112",
+=======
+        0.5,
+        0.45,
+        0.6,
+        0.6,
+        0.55,
+        0.5,
+        0.8,
+        0.65,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.75,
+        0.85,
+        0.85,
+        0.75,
+        0.9,
+        0.85,
+        0.9,
+        0.9,
+        0.75,
+        0.9,
+        0.75,
+        0.65,
+        0.85,
+        0.95,
+        0.7,
+        0.7,
+        0.9,
+        0.6
+      ],
+      "avg_last10": 0.9725,
+      "avg_last50": 0.9013,
+      "best": 1.0,
+      "count": 30,
+      "trend": "stable",
+      "strategies": {
+        "topology_first": 30
+      }
+    }
+  },
+  "curriculum": {
+    "state": {
+      "difficulty": "hard",
+      "difficulty_index": 2,
+      "noise_multiplier": 3.0,
+      "simultaneous_faults": 1,
+      "adversary_budget": 5,
+      "adversary_cunning": 0.8,
+      "fault_budget": 5,
+      "fault_aggression": 0.8,
+      "monitor_reliability": 0.6,
+      "monitor_noise": 0.25,
+      "evidence_delay": 0,
+      "red_herring_count": 4,
+      "episode": 49,
+      "total_promotions": 2,
+      "total_demotions": 0
+    },
+    "reward_history": {
+      "easy": [
+        0.45,
+        0.65,
+        0.7,
+        0.82,
+        0.525,
+        0.725,
+        0.575,
+        0.7,
+        0.845,
+        0.52
+      ],
+      "medium": [
+        0.4975,
+        0.5975,
+        0.765,
+        0.665,
+        0.5425,
+        0.74,
+        0.66,
+        0.555,
+        0.77,
+        0.82
+      ],
+      "hard": [
+        0.635,
+        0.565,
+        0.77,
+        0.7075,
+        0.718,
+        0.7925,
+        0.87,
+        0.85,
+        0.975,
+        0.9,
+        0.9,
+        0.925,
+        0.905,
+        1.0,
+        1.0,
+        0.9,
+        0.95,
+        0.95,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.925,
+        1.0,
+        1.0,
+        0.9,
+        0.9,
+        1.0,
+        1.0
+      ]
+    },
+    "transitions": [
+      {
+        "type": "promotion",
+        "from": "easy",
+        "to": "medium",
+        "episode": 9,
+        "avg_reward": 0.651
+      },
+      {
+        "type": "promotion",
+        "from": "medium",
+        "to": "hard",
+        "episode": 19,
+        "avg_reward": 0.661
+      }
+    ],
+    "intra_progress": 1.0
+  },
+  "evaluation": {
+    "task_id": "hard",
+    "total_steps": 20,
+    "reward_analysis": {
+      "min": 0.3025,
+      "max": 1.0,
+      "mean": 0.6996,
+      "final": 0.85,
+      "improved": true,
+      "time_to_best": 2
+    },
+    "strategy_detected": {
+      "scores": {
+        "topology_first": 1.0,
+        "elimination": 0.8,
+        "signal_correlation": 0.0,
+        "monitor_integration": 1.0,
+        "persistence": 0.6
+      },
+      "primary": "topology_first",
+      "strength": 1.0
+    },
+    "exploration_efficiency": {
+      "unique_hypotheses": 6,
+      "total_attempts": 20,
+      "efficiency": 0.3,
+      "exploration_path": [
+        "api-gateway",
+        "payments-db",
+        "payments-db",
+        "cache-service",
+        "payments-db",
+        "worker-node-7",
+        "payments-db",
+        "cache-service",
+        "payments-db",
+        "api-gateway",
+        "payments-db",
+        "payments-db",
+        "payments-db",
+        "payments-db",
+        "storefront-ui",
+        "cache-service",
+        "order-service",
+        "payments-db",
+        "payments-db",
+        "payments-db"
+      ]
+    },
+    "challenge_resistance": {
+      "resistance_rate": 0.0,
+      "total_challenges": 0,
+      "resisted": 0,
+      "capitulated": 0
+    },
+    "memory_utilization": {
+      "score": 0.0,
+      "hypotheses": 0,
+      "evidence_items": 0,
+      "investigations": 0,
+      "reward_trend": "unknown"
+    },
+    "multi_agent_dynamics": {
+      "fault_injections": 0,
+      "evidence_corruptions": 0,
+      "monitor_signals": 0,
+      "adversarial_pressure": 0.0
+    },
+    "convergence": {
+      "converged": true,
+      "convergence_step": 2,
+      "stable": true,
+      "final_reward": 0.85
+    }
+  },
+  "challenger_wins_total": 0,
+  "updated_at": "2026-04-25T08:55:14.384711",
+>>>>>>> Stashed changes
   "running": false
 }

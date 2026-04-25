@@ -147,6 +147,7 @@ class IncidentObservation(BaseModel):
         description="Running reward score so far this episode"
     )
 
+<<<<<<< Updated upstream
     # Multi-agent debate (Responder ↔ Challenger ↔ Commander)
     debate_challenge: Optional[str] = Field(
         default=None,
@@ -164,6 +165,24 @@ class IncidentObservation(BaseModel):
     debate_strategy: Optional[str] = Field(
         default=None,
         description="Challenge strategy used: topology_challenge, fault_type_challenge, etc."
+=======
+    # Multi-agent context
+    agent_messages: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Messages from other agents (monitor signals, challenges, etc.)"
+    )
+    investigation_results: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Results from 'investigate_further' actions revealing hidden evidence"
+    )
+    memory_summary: Optional[str] = Field(
+        default=None,
+        description="Agent's investigation memory summary (for LLM prompt context)"
+    )
+    hidden_evidence_unlocked: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Evidence revealed by investigation actions"
+>>>>>>> Stashed changes
     )
 
     # Terminal state

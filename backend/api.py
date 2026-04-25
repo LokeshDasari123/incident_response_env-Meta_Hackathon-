@@ -308,6 +308,94 @@ async def daemon_status():
     return daemon.get_status()
 
 
+# ── Multi-agent & curriculum endpoints ────────────────────────────────────────
+@app.get("/multi-agent/status")
+async def multi_agent_status():
+    """Return current multi-agent system state."""
+    summary_path = TRAINING_LOG_DIR / "latest_summary.json"
+    if not summary_path.exists():
+        return {"status": "no_training_data"}
+    try:
+        data = json.loads(summary_path.read_text())
+        evaluation = data.get("evaluation", {})
+        curriculum = data.get("curriculum", {})
+        return {
+            "evaluation":  evaluation,
+            "curriculum":  curriculum,
+            "episode":     data.get("episode", 0),
+            "running":     data.get("running", False),
+        }
+    except Exception:
+        return {"status": "error"}
+
+
+@app.get("/curriculum/state")
+async def curriculum_state():
+    """Return curriculum controller state for visualization."""
+    summary_path = TRAINING_LOG_DIR / "latest_summary.json"
+    if not summary_path.exists():
+        return {"status": "no_data"}
+    try:
+        data = json.loads(summary_path.read_text())
+        return data.get("curriculum", {"status": "no_curriculum_data"})
+    except Exception:
+        return {"status": "error"}
+
+
+@app.get("/evaluation/latest")
+async def evaluation_latest():
+    """Return latest episode evaluation report."""
+    summary_path = TRAINING_LOG_DIR / "latest_summary.json"
+    if not summary_path.exists():
+        return {"status": "no_data"}
+    try:
+        data = json.loads(summary_path.read_text())
+        return data.get("evaluation", {"status": "no_evaluation_data"})
+    except Exception:
+        return {"status": "error"}
+
+
+@app.get("/train/reward-curves")
+async def reward_curves():
+    """Return formatted reward curves for charting."""
+    curves_path = TRAINING_LOG_DIR / "reward_curves.json"
+    if not curves_path.exists():
+        return {"curves": {}}
+    try:
+        return json.loads(curves_path.read_text())
+    except Exception:
+        return {"curves": {}, "error": "failed to read curves"}
+
+
+@app.post("/train/start-multi-agent")
+async def start_multi_agent_training(req: TrainRequest, background_tasks: BackgroundTasks):
+    """Start multi-agent training with adaptive curriculum."""
+    global _training_task, _training_running
+    if _training_running:
+        return {"status": "already_running"}
+
+    def run_training():
+        global _training_running
+        _training_running = True
+        try:
+            import subprocess
+            cmd = [
+                sys.executable,
+                str(ROOT / "training" / "train.py"),
+                "--task",       req.task,
+                "--episodes",   str(req.episodes),
+                "--multi-agent",
+            ]
+            if req.curriculum:
+                cmd.append("--curriculum")
+            subprocess.run(cmd, cwd=str(ROOT))
+        finally:
+            _training_running = False
+
+    background_tasks.add_task(run_training)
+    return {"status": "started", "mode": "multi-agent", "task": req.task, "episodes": req.episodes}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=False)

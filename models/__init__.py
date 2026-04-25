@@ -23,6 +23,12 @@ from models.reward import (
     RewardBreakdown,
 )
 from models.state import IncidentState
+from models.memory import (
+    EpisodeMemory,
+    Hypothesis,
+    Evidence,
+    InvestigationResult,
+)
 
 __all__ = [
     # Action
@@ -41,4 +47,9 @@ __all__ = [
     "RewardBreakdown",
     # State
     "IncidentState",
+    # Memory
+    "EpisodeMemory",
+    "Hypothesis",
+    "Evidence",
+    "InvestigationResult",
 ]

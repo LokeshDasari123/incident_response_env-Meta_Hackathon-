@@ -42,9 +42,13 @@ except ImportError:
 # ── Project imports ────────────────────────────────────────────────────────────
 try:
     from envs.incident_env import IncidentResponseEnv
+    from envs.multi_agent_env import MultiAgentIncidentEnv
     from models.action import IncidentAction, RootCauseType, SeverityLevel, RemediationAction
     from graders import load_grader
     from scenarios.scenario_generator import generate_scenario_variant
+    from training.curriculum import CurriculumController
+    from training.evaluator import EpisodeEvaluator, TrainingCurveAnalyzer
+    from training.experiment_logger import ExperimentLogger
     HAS_ENV = True
 except ImportError as e:
     HAS_ENV = False
@@ -680,6 +684,244 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN TRAINING LOOP
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MULTI-AGENT EPISODE RUNNER  (Theme #1 + #2)
+# ══════════════════════════════════════════════════════════════════════════════
+def run_multi_agent_episode(
+    task_id: str,
+    episode_num: int,
+    total_episodes: int,
+    seed: Optional[int] = None,
+    curriculum_state: Optional[Dict] = None,
+) -> Tuple[List[Dict], Dict]:
+    """
+    Run one full multi-agent training episode.
+    Returns (step_logs, episode_summary).
+
+    4-agent orchestration:
+      1. Monitor agent detects anomalies
+      2. Adversarial agent may corrupt evidence
+      3. Fault injector may inject secondary failures
+      4. Responder diagnoses under adversarial pressure
+    """
+    cs = curriculum_state or {}
+
+    env = MultiAgentIncidentEnv(
+        monitor_reliability = cs.get("monitor_reliability", 0.85),
+        monitor_noise       = cs.get("monitor_noise", 0.10),
+        fault_budget        = cs.get("fault_budget", 2),
+        fault_aggression    = cs.get("fault_aggression", 0.4),
+        adversary_budget    = cs.get("adversary_budget", 1),
+        adversary_cunning   = cs.get("adversary_cunning", 0.3),
+        seed                = seed,
+    )
+
+    gt = GROUND_TRUTH.get(task_id, GROUND_TRUTH["easy"])
+    rh = RED_HERRINGS.get(task_id, [])
+
+    # Compute responder skill
+    progress = episode_num / max(1, total_episodes)
+    import math
+    raw_skill = 1.0 / (1.0 + math.exp(-10 * (progress - 0.40)))
+    ceilings = {"easy": 0.90, "medium": 0.78, "hard": 0.62}
+    skill = raw_skill * ceilings.get(task_id, 0.75)
+
+    # Reset environment
+    obs = env.reset(
+        task_id         = task_id,
+        dynamic         = True,
+        seed            = seed,
+        responder_skill = skill,
+        ground_truth    = gt,
+        red_herrings    = rh,
+    )
+
+    max_steps = MAX_STEPS[task_id]
+    step_logs = []
+    done = False
+
+    for step in range(1, max_steps + 1):
+        if done:
+            break
+
+        obs_out, reward, done, info = env.step()
+
+        ma_info = info.get("multi_agent", {})
+
+        step_log = {
+            "episode":            episode_num,
+            "task_id":            task_id,
+            "step":               step,
+            "reward":             reward,
+            "done":               done,
+            "root_cause":         (env.responder.memory.get_best_hypothesis() or {}).get("service", "unknown"),
+            "root_cause_correct": (env.responder.memory.get_best_hypothesis() or {}).get("service") == gt["root_cause_service"],
+            "skill_level":        round(skill, 4),
+            "monitor_anomalies":  ma_info.get("monitor_anomalies", 0),
+            "fault_injected":     ma_info.get("fault_injected", False),
+            "deception_applied":  ma_info.get("deception_applied", False),
+            "messages_count":     ma_info.get("messages_this_step", 0),
+            "memory_hypotheses":  ma_info.get("memory_hypotheses", 0),
+            "investigations":     ma_info.get("investigation_results", 0),
+            "action":             env._step_logs[-1].get("action", {}) if env._step_logs else {},
+            "breakdown":          {"root_cause": 1.0 if (
+                (env.responder.memory.get_best_hypothesis() or {}).get("service") == gt["root_cause_service"]
+            ) else 0.0},
+            "ground_truth_rc":    gt["root_cause_service"],
+            "timestamp":          datetime.utcnow().isoformat(),
+        }
+        step_logs.append(step_log)
+
+        # Early termination
+        if reward >= 0.88 and task_id != "hard":
+            done = True
+
+    summary = env.get_episode_summary()
+    summary["episode"]     = episode_num
+    summary["skill_level"] = round(skill, 4)
+
+    env.close()
+    return step_logs, summary
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MULTI-AGENT TRAINING LOOP  (Themes #1-5)
+# ══════════════════════════════════════════════════════════════════════════════
+def train_multi_agent(
+    total_episodes: int = 100,
+    curriculum: bool = True,
+    quiet: bool = False,
+) -> Path:
+    """
+    Multi-agent training with adaptive curriculum.
+
+    Integrates all hackathon themes:
+    - Theme #1: 4-agent system (monitor, fault injector, adversary, responder)
+    - Theme #2: Persistent memory + investigation actions
+    - Theme #3: Adaptive curriculum with performance-based promotion
+    - Theme #5: Emergent behavior evaluation
+    """
+    logger    = ExperimentLogger(LOG_DIR)
+    evaluator = EpisodeEvaluator()
+    analyzer  = TrainingCurveAnalyzer()
+    cc        = CurriculumController() if curriculum else None
+
+    print(f"{'='*60}")
+    print(f"MULTI-AGENT GRPO Training — Incident Response AI")
+    print(f"Episodes:    {total_episodes}")
+    print(f"Curriculum:  {curriculum} (adaptive)" if curriculum else f"Curriculum:  fixed rotation")
+    print(f"Agents:      Responder + Monitor + FaultInjector + Adversary")
+    print(f"Log file:    {logger.log_file}")
+    print(f"{'='*60}")
+
+    all_rewards: Dict[str, List[float]] = {"easy": [], "medium": [], "hard": []}
+    start_time = time.time()
+
+    for ep in range(total_episodes):
+        elapsed = time.time() - start_time
+
+        # ── Task selection (curriculum or rotation) ───────────────────────
+        if cc:
+            task_id = cc.current_difficulty
+            cs = cc.get_env_params()
+        else:
+            task_id = CURRICULUM_ORDER[ep % 3]
+            cs = {}
+
+        seed = random.randint(0, 999999)
+
+        # ── Run multi-agent episode ───────────────────────────────────────
+        step_logs, ep_summary = run_multi_agent_episode(
+            task_id          = task_id,
+            episode_num      = ep,
+            total_episodes   = total_episodes,
+            seed             = seed,
+            curriculum_state = cs,
+        )
+
+        # ── Evaluate episode ──────────────────────────────────────────────
+        evaluation = evaluator.evaluate(step_logs, task_id)
+
+        # ── Curriculum update ─────────────────────────────────────────────
+        best_reward = ep_summary.get("best_reward", 0.0)
+        all_rewards[task_id].append(best_reward)
+
+        if cc:
+            cc.record_reward(best_reward, ep)
+
+        # ── Log episode ───────────────────────────────────────────────────
+        logger.log_episode(
+            episode          = ep,
+            task_id          = task_id,
+            summary          = ep_summary,
+            step_logs        = step_logs,
+            curriculum_state = cc.get_dashboard_data() if cc else None,
+            evaluation       = evaluation,
+        )
+
+        # ── Console output ────────────────────────────────────────────────
+        if not quiet:
+            pct  = 100 * ep / total_episodes
+            avg10 = _avg_last_n(all_rewards[task_id], 10)
+            eta_s = (elapsed / max(1, ep)) * (total_episodes - ep) if ep > 0 else 0
+            strategy = evaluation.get("strategy_detected", {}).get("primary", "?")
+            difficulty = cc.current_difficulty if cc else task_id
+            inj_count = ep_summary.get("injections", 0)
+            dec_count = ep_summary.get("deceptions", 0)
+
+            print(
+                f"  ep={ep:04d}/{total_episodes} [{pct:5.1f}%] "
+                f"task={difficulty:6s} "
+                f"reward={best_reward:.3f} "
+                f"avg10={avg10:.3f} "
+                f"strategy={strategy:20s} "
+                f"inj={inj_count} dec={dec_count} "
+                f"ETA={int(eta_s//60)}m{int(eta_s%60):02d}s",
+                flush=True,
+            )
+
+            # Log curriculum transitions
+            if cc:
+                transitions = cc.get_transition_log()
+                if transitions and transitions[-1].get("episode") == ep:
+                    t = transitions[-1]
+                    print(
+                        f"  {'[PROMOTED]' if t['type'] == 'promotion' else '[DEMOTED]'} "
+                        f"CURRICULUM {t['type'].upper()}: "
+                        f"{t['from']} -> {t['to']} "
+                        f"(avg_reward={t['avg_reward']:.3f})"
+                    )
+
+    # ── Finalize ──────────────────────────────────────────────────────────────
+    logger.finalize()
+
+    # Training curve analysis
+    analysis = analyzer.analyze(all_rewards, cc.get_transition_log() if cc else [])
+
+    print(f"\n{'='*60}")
+    print(f"MULTI-AGENT TRAINING COMPLETE")
+    print(f"{'='*60}")
+    for t in CURRICULUM_ORDER:
+        if all_rewards[t]:
+            print(
+                f"  {t:8s}: avg={_avg_last_n(all_rewards[t], 20):.3f}  "
+                f"best={max(all_rewards[t]):.3f}  "
+                f"episodes={len(all_rewards[t])}"
+            )
+    if cc:
+        print(f"  Curriculum transitions: {len(cc.get_transition_log())}")
+        print(f"  Final difficulty: {cc.current_difficulty}")
+    print(f"  Overall trend: {analysis.get('overall_trend', '?')}")
+    print(f"  Log: {logger.log_file}")
+    print(f"{'='*60}")
+
+    return logger.log_file
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN TRAINING LOOP (original — preserved for backward compatibility)
+# ══════════════════════════════════════════════════════════════════════════════
 def train(
     tasks: List[str],
     total_episodes: int,
@@ -951,12 +1193,13 @@ def _trend(lst: List[float]) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GRPO Training — Incident Response AI")
-    parser.add_argument("--task",       default="all",    help="easy|medium|hard|all")
-    parser.add_argument("--episodes",   type=int, default=100)
-    parser.add_argument("--curriculum", action="store_true", help="easy→medium→hard progression")
-    parser.add_argument("--use-llm",    action="store_true", help="Use real LLM via TRL (requires GPU)")
-    parser.add_argument("--model",      default="Qwen/Qwen2.5-1.5B-Instruct")
-    parser.add_argument("--quiet",      action="store_true")
+    parser.add_argument("--task",         default="all",    help="easy|medium|hard|all")
+    parser.add_argument("--episodes",     type=int, default=100)
+    parser.add_argument("--curriculum",   action="store_true", help="easy→medium→hard progression")
+    parser.add_argument("--multi-agent",  action="store_true", help="Use multi-agent system (4 agents)")
+    parser.add_argument("--use-llm",      action="store_true", help="Use real LLM via TRL (requires GPU)")
+    parser.add_argument("--model",        default="Qwen/Qwen2.5-1.5B-Instruct")
+    parser.add_argument("--quiet",        action="store_true")
     args = parser.parse_args()
 
     tasks = CURRICULUM_ORDER if args.task == "all" else [args.task]
@@ -964,6 +1207,12 @@ if __name__ == "__main__":
     if args.use_llm and HAS_TRL:
         for t in tasks:
             run_grpo_training(args.model, t, args.episodes)
+    elif args.multi_agent and HAS_ENV:
+        train_multi_agent(
+            total_episodes = args.episodes,
+            curriculum     = args.curriculum,
+            quiet          = args.quiet,
+        )
     else:
         train(
             tasks          = tasks,

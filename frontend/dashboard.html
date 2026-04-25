@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incident Response AI — Multi-Agent Dashboard</title>
+<meta name="description" content="Real-time multi-agent incident response training dashboard with adaptive curriculum learning">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e1a;--bg2:#111827;--bg3:#1a2035;--card:rgba(17,24,39,.75);
+  --border:rgba(99,102,241,.18);--border2:rgba(99,102,241,.35);
+  --cyan:#06d6a0;--purple:#8b5cf6;--orange:#f59e0b;--red:#ef4444;--blue:#3b82f6;
+  --pink:#ec4899;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --glow-cyan:0 0 20px rgba(6,214,160,.15);--glow-purple:0 0 20px rgba(139,92,246,.15);
+  --radius:12px;--radius-sm:8px;
+}
+html{font-size:14px}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* ── HEADER ─── */
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;
+  background:linear-gradient(135deg,var(--bg2),var(--bg3));border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+header h1{font-size:1.15rem;font-weight:600;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header .badge{padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+.badge-live{background:rgba(6,214,160,.15);color:var(--cyan);border:1px solid rgba(6,214,160,.3);animation:pulse 2s infinite}
+.badge-idle{background:rgba(148,163,184,.1);color:var(--text2);border:1px solid rgba(148,163,184,.2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.header-right{display:flex;gap:10px;align-items:center}
+.btn{padding:6px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:.75rem;font-weight:500;transition:all .2s}
+.btn:hover{border-color:var(--cyan);box-shadow:var(--glow-cyan)}
+.btn-primary{background:linear-gradient(135deg,rgba(6,214,160,.2),rgba(139,92,246,.2));border-color:var(--purple)}
+.btn-primary:hover{background:linear-gradient(135deg,rgba(6,214,160,.35),rgba(139,92,246,.35))}
+
+/* ── GRID ─── */
+.grid{display:grid;grid-template-columns:1fr 1.4fr 1fr;grid-template-rows:1fr 1fr;gap:12px;padding:12px;height:calc(100vh - 52px)}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;backdrop-filter:blur(12px);overflow:hidden;display:flex;flex-direction:column}
+.panel-title{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.panel-title .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.panel-body{flex:1;overflow-y:auto;overflow-x:hidden}
+.panel-body::-webkit-scrollbar{width:3px}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── TOPOLOGY (bottom, spans full width) ─── */
+.panel-topology{grid-column:1/-1}
+
+/* ── CARDS INSIDE PANELS ─── */
+.metric-card{background:rgba(30,41,59,.6);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px;transition:border-color .3s}
+.metric-card:hover{border-color:var(--border2)}
+.metric-label{font-size:.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+.metric-value{font-size:1.4rem;font-weight:700;margin:2px 0}
+.metric-sub{font-size:.68rem;color:var(--text2)}
+.metric-row{display:flex;gap:8px}
+.metric-row .metric-card{flex:1}
+
+/* ── TIMELINE EVENTS ─── */
+.event{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid rgba(99,102,241,.08);font-size:.72rem;align-items:flex-start}
+.event-dot{width:8px;height:8px;border-radius:50%;margin-top:3px;flex-shrink:0}
+.event-dot.monitor{background:var(--cyan)}
+.event-dot.adversary{background:var(--red)}
+.event-dot.injector{background:var(--orange)}
+.event-dot.responder{background:var(--purple)}
+.event-dot.system{background:var(--blue)}
+.event-time{color:var(--text3);min-width:32px;font-family:'JetBrains Mono',monospace;font-size:.65rem}
+.event-msg{color:var(--text2);line-height:1.3}
+.event-msg strong{color:var(--text);font-weight:500}
+
+/* ── AGENT CARDS ─── */
+.agent-card{background:rgba(30,41,59,.5);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px;border-left:3px solid var(--border)}
+.agent-card.monitor{border-left-color:var(--cyan)}
+.agent-card.adversary{border-left-color:var(--red)}
+.agent-card.injector{border-left-color:var(--orange)}
+.agent-card.responder{border-left-color:var(--purple)}
+.agent-name{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.agent-stat{font-size:.68rem;color:var(--text2);line-height:1.5}
+
+/* ── CURRICULUM METER ─── */
+.curriculum-bar{display:flex;height:28px;border-radius:var(--radius-sm);overflow:hidden;margin:8px 0;border:1px solid var(--border)}
+.curriculum-seg{display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:600;letter-spacing:.5px;transition:all .5s}
+.curriculum-seg.easy{background:linear-gradient(135deg,rgba(6,214,160,.25),rgba(6,214,160,.15))}
+.curriculum-seg.medium{background:linear-gradient(135deg,rgba(245,158,11,.25),rgba(245,158,11,.15))}
+.curriculum-seg.hard{background:linear-gradient(135deg,rgba(239,68,68,.25),rgba(239,68,68,.15))}
+.curriculum-seg.active{box-shadow:inset 0 0 20px rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
+
+/* ── STRATEGY BADGE ─── */
+.strategy-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.62rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.strategy-badge.topology_first{background:rgba(6,214,160,.15);color:var(--cyan)}
+.strategy-badge.elimination{background:rgba(139,92,246,.15);color:var(--purple)}
+.strategy-badge.signal_correlation{background:rgba(59,130,246,.15);color:var(--blue)}
+.strategy-badge.monitor_integration{background:rgba(236,72,153,.15);color:var(--pink)}
+.strategy-badge.persistence{background:rgba(245,158,11,.15);color:var(--orange)}
+
+/* ── TOPOLOGY SVG ─── */
+.topo-container{width:100%;height:100%;position:relative}
+.topo-container svg{width:100%;height:100%}
+.svc-node{cursor:pointer;transition:all .3s}
+.svc-label{font-family:'JetBrains Mono',monospace;font-size:10px;fill:var(--text)}
+.svc-status{font-family:'Inter',sans-serif;font-size:8px;fill:var(--text2)}
+
+/* ── CHART CONTAINER ─── */
+.chart-wrap{position:relative;flex:1;min-height:0}
+.chart-wrap canvas{width:100%!important;height:100%!important}
+
+/* ── ANIMATIONS ─── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .3s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.slide-in{animation:slideIn .25s ease-out}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔬 Incident Response AI — Multi-Agent Training</h1>
+  <div class="header-right">
+    <span id="statusBadge" class="badge badge-idle">IDLE</span>
+    <button class="btn btn-primary" onclick="startTraining()">▶ Start Training</button>
+    <button class="btn" onclick="refreshData()">↻ Refresh</button>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- Panel 1: Incident Timeline -->
+  <div class="panel" id="timelinePanel">
+    <div class="panel-title"><span class="dot" style="background:var(--blue)"></span> Agent Activity Timeline</div>
+    <div class="panel-body" id="timeline"></div>
+  </div>
+
+  <!-- Panel 2: Agent Decision View -->
+  <div class="panel" id="agentPanel">
+    <div class="panel-title"><span class="dot" style="background:var(--purple)"></span> Multi-Agent Decision View</div>
+    <div class="panel-body" id="agentView">
+      <div class="metric-row">
+        <div class="metric-card"><div class="metric-label">Episode</div><div class="metric-value mono" id="epNum">—</div></div>
+        <div class="metric-card"><div class="metric-label">Best Reward</div><div class="metric-value mono" id="bestReward">—</div></div>
+        <div class="metric-card"><div class="metric-label">Avg (10)</div><div class="metric-value mono" id="avgReward">—</div></div>
+        <div class="metric-card"><div class="metric-label">Trend</div><div class="metric-value" id="trendIcon">—</div></div>
+      </div>
+      <div class="agent-card responder"><div class="agent-name" style="color:var(--purple)">🧠 Responder Agent</div><div class="agent-stat" id="responderStat">Waiting...</div></div>
+      <div class="agent-card monitor"><div class="agent-name" style="color:var(--cyan)">📡 Monitor Agent</div><div class="agent-stat" id="monitorStat">Waiting...</div></div>
+      <div class="agent-card injector"><div class="agent-name" style="color:var(--orange)">💥 Fault Injector</div><div class="agent-stat" id="injectorStat">Waiting...</div></div>
+      <div class="agent-card adversary"><div class="agent-name" style="color:var(--red)">🎭 Adversarial Agent</div><div class="agent-stat" id="adversaryStat">Waiting...</div></div>
+      <div style="margin-top:8px">
+        <div class="metric-label">Detected Strategy</div>
+        <div id="strategyBadge" style="margin-top:4px"><span class="strategy-badge">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel 3: Reward Progression -->
+  <div class="panel" id="rewardPanel">
+    <div class="panel-title"><span class="dot" style="background:var(--cyan)"></span> Reward Progression</div>
+    <div style="margin-bottom:8px">
+      <div class="metric-label">Adaptive Curriculum</div>
+      <div class="curriculum-bar">
+        <div class="curriculum-seg easy" id="curEasy" style="flex:1">EASY</div>
+        <div class="curriculum-seg medium" id="curMedium" style="flex:1">MEDIUM</div>
+        <div class="curriculum-seg hard" id="curHard" style="flex:1">HARD</div>
+      </div>
+      <div class="metric-sub" id="curriculumInfo">Difficulty: —</div>
+    </div>
+    <div class="chart-wrap"><canvas id="rewardChart"></canvas></div>
+  </div>
+
+  <!-- Panel 4: System Topology -->
+  <div class="panel panel-topology" id="topoPanel">
+    <div class="panel-title"><span class="dot" style="background:var(--orange)"></span> Service Topology & Health</div>
+    <div class="panel-body topo-container" id="topoContainer"></div>
+  </div>
+</div>
+
+<script>
+const API = window.location.port === '' ? '' : `http://localhost:8000`;
+let rewardChart = null;
+let pollInterval = null;
+
+// ── Chart Setup ──
+function initChart() {
+  const ctx = document.getElementById('rewardChart').getContext('2d');
+  rewardChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Easy (smoothed)', data: [], borderColor: '#06d6a0', backgroundColor: 'rgba(6,214,160,.08)', borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true },
+        { label: 'Medium (smoothed)', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.08)', borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true },
+        { label: 'Hard (smoothed)', data: [], borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.08)', borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { display: true, grid: { color: 'rgba(99,102,241,.08)' }, ticks: { color: '#64748b', font: { size: 9 } } },
+        y: { min: 0, max: 1, grid: { color: 'rgba(99,102,241,.08)' }, ticks: { color: '#64748b', font: { size: 9 } } }
+      },
+      plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } },
+      animation: { duration: 300 }
+    }
+  });
+}
+
+// ── Data Fetching ──
+async function fetchJSON(url) {
+  try { const r = await fetch(API + url); return r.ok ? await r.json() : null; } catch { return null; }
+}
+
+async function refreshData() {
+  const [summary, curves, evaluation, curriculum] = await Promise.all([
+    fetchJSON('/train/status'),
+    fetchJSON('/train/reward-curves'),
+    fetchJSON('/evaluation/latest'),
+    fetchJSON('/curriculum/state'),
+  ]);
+  if (summary) updateSummary(summary);
+  if (curves) updateChart(curves);
+  if (evaluation) updateEvaluation(evaluation);
+  if (curriculum) updateCurriculum(curriculum);
+}
+
+function updateSummary(s) {
+  const badge = document.getElementById('statusBadge');
+  badge.textContent = s.running ? 'TRAINING' : 'IDLE';
+  badge.className = 'badge ' + (s.running ? 'badge-live' : 'badge-idle');
+  document.getElementById('epNum').textContent = s.episode ?? '—';
+
+  // Find best task stats
+  const pt = s.per_task || {};
+  let bestR = 0, avgR = 0, trend = '—';
+  for (const [t, d] of Object.entries(pt)) {
+    if (d.best > bestR) bestR = d.best;
+    if (d.avg_last10 > avgR) { avgR = d.avg_last10; trend = d.trend || '—'; }
+  }
+  document.getElementById('bestReward').textContent = bestR.toFixed(3);
+  document.getElementById('avgReward').textContent = avgR.toFixed(3);
+  const icons = { improving: '📈', declining: '📉', stable: '➡️', insufficient_data: '⏳' };
+  document.getElementById('trendIcon').textContent = (icons[trend] || '—') + ' ' + (trend || '');
+
+  // Agent stats from evaluation or curriculum
+  const ev = s.evaluation || {};
+  const ma = ev.multi_agent_dynamics || {};
+  document.getElementById('monitorStat').textContent = `Signals sent: ${ma.monitor_signals || 0}`;
+  document.getElementById('injectorStat').textContent = `Faults injected: ${ma.fault_injections || 0}`;
+  document.getElementById('adversaryStat').textContent = `Evidence corruptions: ${ma.evidence_corruptions || 0}`;
+
+  const cr = ev.challenge_resistance || {};
+  document.getElementById('responderStat').textContent =
+    `Challenge resistance: ${((cr.resistance_rate || 0) * 100).toFixed(0)}% | Memory score: ${((ev.memory_utilization || {}).score || 0).toFixed(2)}`;
+}
+
+function updateChart(curves) {
+  if (!rewardChart || !curves) return;
+  const maxLen = Math.max(...Object.values(curves).map(c => (c.smoothed || []).length), 0);
+  rewardChart.data.labels = Array.from({ length: maxLen }, (_, i) => i);
+  const taskMap = { easy: 0, medium: 1, hard: 2 };
+  for (const [task, idx] of Object.entries(taskMap)) {
+    const c = curves[task];
+    rewardChart.data.datasets[idx].data = c ? c.smoothed || [] : [];
+  }
+  rewardChart.update('none');
+}
+
+function updateEvaluation(ev) {
+  if (!ev || ev.status) return;
+  const st = ev.strategy_detected || {};
+  const primary = st.primary || 'unknown';
+  const el = document.getElementById('strategyBadge');
+  el.innerHTML = `<span class="strategy-badge ${primary}">${primary.replace(/_/g, ' ')}</span>
+    <span style="font-size:.65rem;color:var(--text3);margin-left:6px">strength: ${((st.strength || 0) * 100).toFixed(0)}%</span>`;
+
+  // Timeline events
+  addTimelineEvent('system', `Strategy detected: ${primary.replace(/_/g, ' ')} (${((st.strength || 0) * 100).toFixed(0)}%)`);
+  const conv = ev.convergence || {};
+  if (conv.converged) addTimelineEvent('responder', `Converged at step ${conv.convergence_step} → reward ${(conv.final_reward || 0).toFixed(3)}`);
+}
+
+function updateCurriculum(cur) {
+  if (!cur || cur.status) return;
+  const state = cur.state || cur;
+  const diff = state.difficulty || 'easy';
+  document.getElementById('curriculumInfo').textContent =
+    `Difficulty: ${diff.toUpperCase()} | Noise: ${(state.noise_multiplier || 1).toFixed(1)}x | Adversary budget: ${state.adversary_budget || 0} | Fault budget: ${state.fault_budget || 0}`;
+  ['easy', 'medium', 'hard'].forEach(d => {
+    const el = document.getElementById('cur' + d.charAt(0).toUpperCase() + d.slice(1));
+    el.classList.toggle('active', d === diff);
+  });
+  const transitions = cur.transitions || [];
+  if (transitions.length > 0) {
+    const last = transitions[transitions.length - 1];
+    addTimelineEvent('system', `🎉 Curriculum ${last.type}: ${last.from} → ${last.to} (avg=${(last.avg_reward || 0).toFixed(3)})`);
+  }
+}
+
+// ── Timeline ──
+function addTimelineEvent(type, msg) {
+  const tl = document.getElementById('timeline');
+  const el = document.createElement('div');
+  el.className = 'event fade-in';
+  const now = new Date();
+  el.innerHTML = `<div class="event-dot ${type}"></div><div class="event-time">${now.toLocaleTimeString().slice(0,5)}</div><div class="event-msg">${msg}</div>`;
+  tl.prepend(el);
+  if (tl.children.length > 50) tl.removeChild(tl.lastChild);
+}
+
+// ── Topology SVG ──
+function renderTopology() {
+  const container = document.getElementById('topoContainer');
+  const w = container.clientWidth, h = container.clientHeight;
+  const services = [
+    { id: 'storefront-ui', x: 0.12, y: 0.3, status: 'healthy' },
+    { id: 'api-gateway', x: 0.30, y: 0.3, status: 'healthy' },
+    { id: 'auth-service', x: 0.30, y: 0.7, status: 'healthy' },
+    { id: 'user-service', x: 0.50, y: 0.7, status: 'healthy' },
+    { id: 'order-service', x: 0.50, y: 0.3, status: 'healthy' },
+    { id: 'payments-api', x: 0.68, y: 0.3, status: 'degraded' },
+    { id: 'payments-db', x: 0.85, y: 0.3, status: 'failing' },
+    { id: 'cache-service', x: 0.68, y: 0.7, status: 'healthy' },
+    { id: 'notification-svc', x: 0.85, y: 0.7, status: 'healthy' },
+  ];
+  const edges = [
+    ['storefront-ui', 'api-gateway'], ['api-gateway', 'auth-service'], ['auth-service', 'user-service'],
+    ['api-gateway', 'order-service'], ['order-service', 'payments-api'], ['payments-api', 'payments-db'],
+    ['cache-service', 'payments-db'],
+  ];
+  const statusColors = { healthy: '#06d6a0', degraded: '#f59e0b', critical: '#ef4444', failing: '#ef4444' };
+
+  let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
+  // Edges
+  const svcMap = {};
+  services.forEach(s => { svcMap[s.id] = { x: s.x * w, y: s.y * h }; });
+  edges.forEach(([a, b]) => {
+    if (svcMap[a] && svcMap[b]) {
+      svg += `<line x1="${svcMap[a].x}" y1="${svcMap[a].y}" x2="${svcMap[b].x}" y2="${svcMap[b].y}" stroke="rgba(99,102,241,.25)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+    }
+  });
+  // Nodes
+  services.forEach(s => {
+    const cx = s.x * w, cy = s.y * h, r = 22;
+    const col = statusColors[s.status] || statusColors.healthy;
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(17,24,39,.9)" stroke="${col}" stroke-width="2"/>`;
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r + 6}" fill="none" stroke="${col}" stroke-width="0.5" opacity="0.3"/>`;
+    svg += `<text x="${cx}" y="${cy - 4}" text-anchor="middle" class="svc-label">${s.id.split('-')[0]}</text>`;
+    svg += `<text x="${cx}" y="${cy + 8}" text-anchor="middle" class="svc-status">${s.status}</text>`;
+  });
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
+// ── Training Control ──
+async function startTraining() {
+  const r = await fetch(API + '/train/start-multi-agent', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task: 'all', episodes: 100, curriculum: true })
+  }).catch(() => null);
+  if (r && r.ok) {
+    addTimelineEvent('system', '<strong>Training started</strong> — 100 episodes, adaptive curriculum, 4 agents');
+    if (!pollInterval) {
+      pollInterval = setInterval(refreshData, 3000);
+    }
+  }
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  renderTopology();
+  refreshData();
+  // Auto-poll
+  pollInterval = setInterval(refreshData, 5000);
+  addTimelineEvent('system', '<strong>Dashboard initialized</strong> — Multi-Agent Incident Response AI');
+  addTimelineEvent('system', '4 agents ready: Responder, Monitor, Fault Injector, Adversary');
+});
+window.addEventListener('resize', renderTopology);
+</script>
+</body>
+</html>
