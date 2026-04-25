@@ -3,6 +3,7 @@ from scenarios.base_scenario import (
     EasyScenario,
     MediumScenario,
     HardScenario,
+    ExpertScenario,
     load_scenario,
     SCENARIO_MAP,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "EasyScenario",
     "MediumScenario",
     "HardScenario",
+    "ExpertScenario",
     "load_scenario",
     "SCENARIO_MAP",
     # Dynamic generation

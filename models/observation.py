@@ -147,6 +147,25 @@ class IncidentObservation(BaseModel):
         description="Running reward score so far this episode"
     )
 
+    # Multi-agent debate (Responder ↔ Challenger ↔ Commander)
+    debate_challenge: Optional[str] = Field(
+        default=None,
+        description="Adversarial challenge from the Challenger agent. "
+                    "The agent should address this in its next action."
+    )
+    debate_phase: Optional[str] = Field(
+        default=None,
+        description="Current debate phase: initial / challenged / resolved"
+    )
+    debate_history: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Full debate transcript for this episode"
+    )
+    debate_strategy: Optional[str] = Field(
+        default=None,
+        description="Challenge strategy used: topology_challenge, fault_type_challenge, etc."
+    )
+
     # Terminal state
     done: bool = Field(default=False)
     reward: float = Field(default=0.0)

@@ -56,7 +56,7 @@ CKPT_DIR = ROOT / "data" / "checkpoints"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
-CURRICULUM_ORDER = ["easy", "medium", "hard"]
+CURRICULUM_ORDER = ["easy", "medium", "hard", "expert"]
 
 # ── Ground-truth answers per task (for rule-based agent scoring) ───────────────
 GROUND_TRUTH = {
@@ -81,15 +81,23 @@ GROUND_TRUTH = {
         "affected_services": ["payments-db", "cache-service", "order-service", "api-gateway", "storefront-ui"],
         "remediation_action": "restart_service",
     },
+    "expert": {
+        "root_cause_service": "auth-service",
+        "root_cause_type": "certificate_expiry",
+        "severity": "P0",
+        "affected_services": ["auth-service", "user-service", "api-gateway", "storefront-ui", "order-service", "payments-api", "notification-svc"],
+        "remediation_action": "fix_config",
+    },
 }
 
 RED_HERRINGS = {
     "easy":   ["worker-node-4"],
     "medium": ["cache-service", "worker-node-4"],
     "hard":   ["network-switch-03", "worker-node-7"],
+    "expert": ["cache-service", "worker-node-7", "metrics-exporter"],
 }
 
-MAX_STEPS = {"easy": 10, "medium": 15, "hard": 20}
+MAX_STEPS = {"easy": 10, "medium": 15, "hard": 20, "expert": 25}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -608,6 +616,7 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
         "easy":   ["payments-db", "payments-api", "checkout-ui", "worker-node-4"],
         "medium": ["user-service", "auth-service", "api-gateway", "storefront-ui", "cache-service", "worker-node-4"],
         "hard":   ["payments-db", "cache-service", "order-service", "api-gateway", "storefront-ui", "network-switch-03", "worker-node-7"],
+        "expert": ["auth-service", "user-service", "api-gateway", "storefront-ui", "order-service", "payments-api", "notification-svc", "cache-service", "worker-node-7", "metrics-exporter"],
     }[task_id]
 
     gt = GROUND_TRUTH[task_id]
@@ -650,6 +659,11 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
                    {"upstream": "api-gateway", "downstream": "order-service", "rpc_type": "rpc", "avg_latency_ms": 35, "current_latency_ms": 38000},
                    {"upstream": "order-service", "downstream": "payments-db", "rpc_type": "db", "avg_latency_ms": 8, "current_latency_ms": 0},
                    {"upstream": "cache-service", "downstream": "payments-db", "rpc_type": "db", "avg_latency_ms": 3, "current_latency_ms": 0}],
+        "expert": [{"upstream": "storefront-ui", "downstream": "api-gateway", "rpc_type": "http", "avg_latency_ms": 45, "current_latency_ms": 42000},
+                   {"upstream": "api-gateway", "downstream": "auth-service", "rpc_type": "rpc", "avg_latency_ms": 12, "current_latency_ms": 45000},
+                   {"upstream": "api-gateway", "downstream": "order-service", "rpc_type": "rpc", "avg_latency_ms": 22, "current_latency_ms": 15000},
+                   {"upstream": "auth-service", "downstream": "user-service", "rpc_type": "rpc", "avg_latency_ms": 20, "current_latency_ms": 35000},
+                   {"upstream": "order-service", "downstream": "payments-api", "rpc_type": "rpc", "avg_latency_ms": 15, "current_latency_ms": 8000}],
     }[task_id]
 
     return {

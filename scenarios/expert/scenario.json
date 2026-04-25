@@ -1,0 +1,297 @@
+{
+  "scenario_id": "expert_cascading_auth_failure",
+  "name": "Expert — Multi-Vector Cascading Auth + Payment Failure",
+  "description": "A certificate expiration on the auth-service triggers a cascading authentication failure across the entire platform. Simultaneously, an unrelated memory leak in cache-service creates confusing cross-signals. The agent must separate two concurrent fault vectors, identify the primary root cause under extreme SLA pressure (breach at step 4), and issue correct remediation while filtering 3 red herring services.",
+  "fault_type": "certificate_expiry",
+  "max_steps": 25,
+  "sla_breach_step": 4,
+  "services": [
+    {
+      "name": "auth-service",
+      "is_root_cause": true,
+      "is_stateful": false,
+      "normal_cpu": 0.22,
+      "normal_mem": 0.35,
+      "incident_cpu": 0.24,
+      "incident_mem": 0.38,
+      "normal_http_rt": 15.0,
+      "incident_http_rt": 45000.0,
+      "normal_consumer_rpc_rt": 8.0,
+      "incident_consumer_rpc_rt": 0.0,
+      "normal_provider_rpc_rt": 12.0,
+      "incident_provider_rpc_rt": 0.0,
+      "status": "failing",
+      "restart_count": 0,
+      "error_rate": 0.98
+    },
+    {
+      "name": "user-service",
+      "is_root_cause": false,
+      "is_stateful": true,
+      "normal_cpu": 0.30,
+      "normal_mem": 0.45,
+      "incident_cpu": 0.32,
+      "incident_mem": 0.48,
+      "normal_http_rt": 25.0,
+      "incident_http_rt": 38000.0,
+      "normal_provider_rpc_rt": 20.0,
+      "incident_provider_rpc_rt": 35000.0,
+      "status": "failing"
+    },
+    {
+      "name": "api-gateway",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.40,
+      "normal_mem": 0.50,
+      "incident_cpu": 0.88,
+      "incident_mem": 0.72,
+      "normal_http_rt": 45.0,
+      "incident_http_rt": 42000.0,
+      "normal_consumer_rpc_rt": 18.0,
+      "incident_consumer_rpc_rt": 39000.0,
+      "status": "critical"
+    },
+    {
+      "name": "storefront-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.25,
+      "normal_mem": 0.30,
+      "incident_cpu": 0.27,
+      "incident_mem": 0.33,
+      "normal_http_rt": 80.0,
+      "incident_http_rt": 45000.0,
+      "status": "critical"
+    },
+    {
+      "name": "order-service",
+      "is_root_cause": false,
+      "is_stateful": true,
+      "normal_cpu": 0.35,
+      "normal_mem": 0.42,
+      "incident_cpu": 0.38,
+      "incident_mem": 0.55,
+      "normal_http_rt": 35.0,
+      "incident_http_rt": 15000.0,
+      "normal_provider_rpc_rt": 22.0,
+      "incident_provider_rpc_rt": 12000.0,
+      "status": "degraded"
+    },
+    {
+      "name": "payments-api",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.28,
+      "normal_mem": 0.40,
+      "incident_cpu": 0.30,
+      "incident_mem": 0.43,
+      "normal_http_rt": 30.0,
+      "incident_http_rt": 8000.0,
+      "normal_provider_rpc_rt": 18.0,
+      "incident_provider_rpc_rt": 6000.0,
+      "status": "degraded"
+    },
+    {
+      "name": "notification-svc",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.15,
+      "normal_mem": 0.25,
+      "incident_cpu": 0.18,
+      "incident_mem": 0.28,
+      "normal_http_rt": 20.0,
+      "incident_http_rt": 5000.0,
+      "status": "degraded"
+    },
+    {
+      "name": "cache-service",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": true,
+      "normal_cpu": 0.50,
+      "normal_mem": 0.55,
+      "incident_cpu": 0.52,
+      "incident_mem": 0.94,
+      "normal_http_rt": 3.0,
+      "incident_http_rt": 250.0,
+      "status": "critical",
+      "restart_count": 4,
+      "red_herring_reason": "Independent memory leak in cache eviction. Pre-existing bug, NOT caused by cert expiry. Confusing because memory is 94%."
+    },
+    {
+      "name": "worker-node-7",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": false,
+      "normal_cpu": 0.60,
+      "normal_mem": 0.45,
+      "incident_cpu": 0.96,
+      "incident_mem": 0.48,
+      "red_herring_reason": "Scheduled ML training job running. CPU spike is unrelated to incident."
+    },
+    {
+      "name": "metrics-exporter",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": false,
+      "normal_cpu": 0.18,
+      "normal_mem": 0.28,
+      "incident_cpu": 0.92,
+      "incident_mem": 0.35,
+      "red_herring_reason": "Prometheus exporter CPU spike from cardinality explosion due to error label flood. Self-resolving."
+    }
+  ],
+  "topology": [
+    {"upstream": "storefront-ui", "downstream": "api-gateway", "rpc_type": "http", "avg_rt_ms": 45.0},
+    {"upstream": "api-gateway", "downstream": "auth-service", "rpc_type": "rpc", "avg_rt_ms": 12.0},
+    {"upstream": "api-gateway", "downstream": "order-service", "rpc_type": "rpc", "avg_rt_ms": 22.0},
+    {"upstream": "api-gateway", "downstream": "payments-api", "rpc_type": "rpc", "avg_rt_ms": 18.0},
+    {"upstream": "auth-service", "downstream": "user-service", "rpc_type": "rpc", "avg_rt_ms": 20.0},
+    {"upstream": "order-service", "downstream": "payments-api", "rpc_type": "rpc", "avg_rt_ms": 15.0},
+    {"upstream": "order-service", "downstream": "notification-svc", "rpc_type": "mq", "avg_rt_ms": 8.0},
+    {"upstream": "payments-api", "downstream": "cache-service", "rpc_type": "mc", "avg_rt_ms": 3.0}
+  ],
+  "alerts": [
+    {
+      "alert_id": "ALT-EXP-001",
+      "service": "auth-service",
+      "metric": "tls_cert_expiry_days",
+      "current_value": 0,
+      "threshold": 7,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-EXP-002",
+      "service": "auth-service",
+      "metric": "HTTP_RT",
+      "current_value": 45000.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-EXP-003",
+      "service": "user-service",
+      "metric": "providerRPC_RT",
+      "current_value": 35000.0,
+      "threshold": 200.0,
+      "severity": "critical",
+      "fired_at_step": 1,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-EXP-004",
+      "service": "api-gateway",
+      "metric": "HTTP_RT",
+      "current_value": 42000.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 1,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-EXP-005",
+      "service": "cache-service",
+      "metric": "memory_utilization",
+      "current_value": 0.94,
+      "threshold": 0.85,
+      "severity": "critical",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    },
+    {
+      "alert_id": "ALT-EXP-006",
+      "service": "worker-node-7",
+      "metric": "cpu_utilization",
+      "current_value": 0.96,
+      "threshold": 0.90,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    },
+    {
+      "alert_id": "ALT-EXP-007",
+      "service": "metrics-exporter",
+      "metric": "cpu_utilization",
+      "current_value": 0.92,
+      "threshold": 0.85,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    },
+    {
+      "alert_id": "ALT-EXP-008",
+      "service": "storefront-ui",
+      "metric": "HTTP_RT",
+      "current_value": 45000.0,
+      "threshold": 500.0,
+      "severity": "critical",
+      "fired_at_step": 2,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-EXP-009",
+      "service": "order-service",
+      "metric": "HTTP_RT",
+      "current_value": 15000.0,
+      "threshold": 500.0,
+      "severity": "warning",
+      "fired_at_step": 2,
+      "is_red_herring": false
+    }
+  ],
+  "timeline": [
+    {
+      "step": 0,
+      "event_type": "cert_expiry",
+      "service": "auth-service",
+      "description": "TLS certificate for auth-service.prod.internal expired. All mTLS connections failing."
+    },
+    {
+      "step": 0,
+      "event_type": "alert_fired",
+      "service": "cache-service",
+      "description": "cache-service memory at 94%. Eviction loop detected (pre-existing bug)."
+    },
+    {
+      "step": 0,
+      "event_type": "unrelated",
+      "service": "worker-node-7",
+      "description": "Scheduled ML model training job started on worker-node-7."
+    },
+    {
+      "step": 1,
+      "event_type": "cascade",
+      "service": "user-service",
+      "description": "user-service cannot authenticate — upstream auth-service TLS handshake failing."
+    },
+    {
+      "step": 1,
+      "event_type": "cascade",
+      "service": "api-gateway",
+      "description": "api-gateway receiving 503s from auth-service. All authenticated endpoints down."
+    },
+    {
+      "step": 2,
+      "event_type": "cascade",
+      "service": "storefront-ui",
+      "description": "storefront-ui showing 'Service Unavailable' to all users. Revenue impact: $15,000/min."
+    },
+    {
+      "step": 2,
+      "event_type": "cascade",
+      "service": "order-service",
+      "description": "order-service failing on auth token validation. New orders blocked."
+    },
+    {
+      "step": 3,
+      "event_type": "escalation_warning",
+      "service": "incident-commander",
+      "description": "SLA breach imminent in 1 step. P0 escalation required immediately."
+    }
+  ]
+}

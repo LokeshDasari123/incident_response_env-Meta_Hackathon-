@@ -47,6 +47,18 @@ class RewardBreakdown(BaseModel):
         description="Resolved within time budget. Weight: 0.10"
     )
 
+    # Multi-agent debate bonus
+    debate_improvement_bonus: float = Field(
+        default=0.0,
+        ge=-0.05,
+        le=0.10,
+        description="Bonus/penalty for improving/degrading after challenge"
+    )
+    debate_feedback: Optional[str] = Field(
+        default=None,
+        description="Feedback on debate performance"
+    )
+
     # Penalties (subtracted from raw score)
     false_positive_penalty: float = Field(
         default=0.0,

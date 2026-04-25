@@ -1,0 +1,83 @@
+{
+  "ground_truth": {
+    "root_cause_service": "auth-service",
+    "root_cause_type": "certificate_expiry",
+    "severity": "P0",
+    "affected_services": [
+      "auth-service",
+      "user-service",
+      "api-gateway",
+      "storefront-ui",
+      "order-service",
+      "payments-api",
+      "notification-svc"
+    ],
+    "remediation_action": "fix_config",
+    "red_herring_services": [
+      "cache-service",
+      "worker-node-7",
+      "metrics-exporter"
+    ],
+    "explanation": "The TLS certificate for auth-service expired, breaking all mTLS connections. This cascades through user-service (can't auth), api-gateway (503s), and all downstream services. cache-service has an independent memory leak (pre-existing). worker-node-7 is running a scheduled ML job. metrics-exporter is spiking from cardinality explosion. The fix is to renew/replace the certificate (fix_config)."
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "weight": 0.30,
+      "exact_match": "auth-service",
+      "partial_credit": {
+        "user-service": 0.25,
+        "api-gateway": 0.10
+      }
+    },
+    "root_cause_type": {
+      "weight": 0.10,
+      "exact_match": "certificate_expiry",
+      "partial_credit": {
+        "misconfiguration": 0.50,
+        "dependency_failure": 0.30,
+        "network_partition": 0.20
+      }
+    },
+    "affected_services": {
+      "weight": 0.10,
+      "required": ["auth-service", "user-service", "api-gateway", "storefront-ui", "order-service"],
+      "penalize_if_includes": ["cache-service", "worker-node-7", "metrics-exporter"],
+      "penalty_per_wrong": 0.15
+    },
+    "severity": {
+      "weight": 0.15,
+      "exact_match": "P0",
+      "partial_credit": {
+        "P1": 0.30
+      }
+    },
+    "remediation_action": {
+      "weight": 0.20,
+      "exact_match": ["fix_config"],
+      "partial_credit": {
+        "restart_service": 0.20,
+        "rollback": 0.15
+      },
+      "penalty": ["scale_up", "reroute_traffic"]
+    },
+    "stakeholder_message": {
+      "weight": 0.10,
+      "required_keywords": ["auth", "certificate", "expired", "fix"],
+      "min_length": 40
+    },
+    "speed_bonus": {
+      "weight": 0.05,
+      "full_bonus_within_steps": 4,
+      "half_bonus_within_steps": 8
+    },
+    "sla_pressure": {
+      "penalty_if_no_action_by_step": 4,
+      "penalty_amount": 0.20
+    }
+  },
+  "expected_scores": {
+    "gpt4": 0.25,
+    "random": 0.03,
+    "expert_sre": 0.85
+  }
+}

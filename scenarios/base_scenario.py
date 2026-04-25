@@ -478,10 +478,23 @@ class HardScenario(BaseScenario):
         return True
 
 
+class ExpertScenario(BaseScenario):
+    def __init__(self):
+        super().__init__("expert")
+
+    def validate(self) -> bool:
+        assert len(self.services) >= 7
+        assert self.ground_truth["root_cause_service"]
+        assert self.sla_breach_step is not None
+        assert len(self.get_red_herring_services()) >= 3
+        return True
+
+
 SCENARIO_MAP = {
     "easy":   EasyScenario,
     "medium": MediumScenario,
     "hard":   HardScenario,
+    "expert": ExpertScenario,
 }
 
 

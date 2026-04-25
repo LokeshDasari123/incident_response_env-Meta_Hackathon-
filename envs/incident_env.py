@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Dict, Optional, Tuple
 
 from envs.base_env      import BaseIncidentEnv
+from envs.debate        import DebateEngine
 from graders            import load_grader
 from models.action      import IncidentAction
 from models.observation import IncidentObservation
@@ -22,6 +23,7 @@ DONE_THRESHOLDS = {
     "easy":   0.70,   # ends early on good answer
     "medium": 0.75,   # slightly harder to trigger early end
     "hard":   99.0,   # effectively never ends early — must run all steps
+    "expert": 99.0,   # expert never ends early either
 }
 
 
@@ -36,7 +38,7 @@ class IncidentResponseEnv(BaseIncidentEnv):
         close()        -> cleanup
     """
 
-    VALID_TASKS = ("easy", "medium", "hard")
+    VALID_TASKS = ("easy", "medium", "hard", "expert")
 
     def __init__(self) -> None:
         self._scenario:      Optional[BaseScenario]  = None
@@ -49,6 +51,9 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._best_score:      float          = 0.0
         self._last_root_cause: str             = ""
         self._repeat_count:    int             = 0
+        self._debate:          Optional[DebateEngine] = None
+        self._last_action:     Optional[Dict]  = None
+        self._debate_challenge: Optional[Dict] = None
 
     def reset(
         self,
@@ -78,6 +83,9 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._best_score      = 0.0
         self._last_root_cause = ""
         self._repeat_count    = 0
+        self._debate          = DebateEngine(seed=seed)
+        self._last_action     = None
+        self._debate_challenge = None
 
         # Dynamic variant generation — each reset produces unique metrics
         if dynamic:
@@ -159,6 +167,34 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._done          = done
         self._state.is_done = done
 
+        # ── Multi-agent debate ────────────────────────────────────────────────
+        # Generate adversarial challenge for next step's observation
+        debate_bonus = 0.0
+        debate_feedback_text = None
+        if self._debate and self._last_action is not None:
+            debate_bonus, debate_feedback_text = self._debate.score_debate_improvement(
+                prev_action=self._last_action,
+                curr_action=action.model_dump(),
+                ground_truth=self._scenario.ground_truth,
+            )
+            reward = round(max(0.0, min(1.0, reward + debate_bonus)), 4)
+
+        # Generate challenge for NEXT step
+        if self._debate and not done:
+            self._debate_challenge = self._debate.generate_challenge(
+                action=action.model_dump(),
+                metrics=self._scenario.get_metrics_at_step(self._step, self._scenario.max_steps),
+                alerts=self._scenario.get_alerts_at_step(self._step, self._scenario.max_steps),
+                topology=self._scenario.get_topology_at_step(self._step, self._scenario.max_steps),
+                ground_truth=self._scenario.ground_truth,
+                step=self._step,
+                max_steps=self._scenario.max_steps,
+            )
+        else:
+            self._debate_challenge = None
+
+        self._last_action = action.model_dump()
+
         info = {
             "reward_breakdown": breakdown.model_dump(),
             "episode_id":       self._state.episode_id,
@@ -166,6 +202,9 @@ class IncidentResponseEnv(BaseIncidentEnv):
             "step":             self._step,
             "max_steps":        self._scenario.max_steps,
             "best_score":       self._best_score,
+            "debate_bonus":     debate_bonus,
+            "debate_feedback":  debate_feedback_text,
+            "debate_summary":   self._debate.get_debate_summary() if self._debate else {},
         }
 
         obs = self._build_observation(
@@ -239,6 +278,14 @@ class IncidentResponseEnv(BaseIncidentEnv):
             sla_breach_in_steps = sla_breach_in,
             previous_actions    = prev_actions,
             current_score       = self._best_score,
+            # Multi-agent debate fields
+            debate_challenge    = self._debate_challenge.get("challenge_text") if self._debate_challenge else None,
+            debate_phase        = (
+                "challenged" if self._debate_challenge
+                else ("initial" if self._step == 0 else "resolved")
+            ),
+            debate_history      = self._debate.history if self._debate else [],
+            debate_strategy     = self._debate_challenge.get("strategy") if self._debate_challenge else None,
             done                = done,
             reward              = reward,
             info                = {

@@ -137,6 +137,15 @@ NOISE_PROFILES: Dict[str, Dict[str, Any]] = {
         "randomize_rh_severity":  True,
         "correlated_noise":       True,
     },
+    "expert": {
+        "metric_jitter_pct":      0.30,   # Maximum jitter
+        "alert_jitter_pct":       0.25,
+        "latency_jitter_pct":     0.25,
+        "extra_red_herrings":     3,      # 3 extra distractors
+        "shuffle_timeline":       True,
+        "randomize_rh_severity":  True,
+        "correlated_noise":       True,
+    },
 }
 
 
