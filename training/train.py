@@ -1,7 +1,7 @@
 """
 training/train.py
 =================
-GRPO Training Script — Incident Response AI Agent
+GRPO Training Script -- Incident Response AI Agent
 Supports: Curriculum Learning, Multi-Agent Challenger Loop, Dynamic Scenarios
 Outputs:  JSONL step logs + per-task reward curves + summary JSON for UI
 
@@ -29,17 +29,17 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-# ── Optional TRL import (falls back to simulation if not installed) ────────────
+# -- Optional TRL import (falls back to simulation if not installed) ------------
 try:
     from trl import GRPOConfig, GRPOTrainer
     from transformers import AutoTokenizer, AutoModelForCausalLM
     HAS_TRL = True
-    print("[INFO] TRL detected — real GRPO training available")
+    print("[INFO] TRL detected -- real GRPO training available")
 except ImportError:
     HAS_TRL = False
-    print("[INFO] TRL not installed — running reward simulation mode")
+    print("[INFO] TRL not installed -- running reward simulation mode")
 
-# ── Project imports ────────────────────────────────────────────────────────────
+# -- Project imports ------------------------------------------------------------
 try:
     from envs.incident_env import IncidentResponseEnv
     from envs.multi_agent_env import MultiAgentIncidentEnv
@@ -52,9 +52,9 @@ try:
     HAS_ENV = True
 except ImportError as e:
     HAS_ENV = False
-    print(f"[WARN] Environment not importable: {e} — using full simulation mode")
+    print(f"[WARN] Environment not importable: {e} -- using full simulation mode")
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
+# -- Paths ----------------------------------------------------------------------
 LOG_DIR  = ROOT / "data" / "training_logs"
 CKPT_DIR = ROOT / "data" / "checkpoints"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,7 +62,7 @@ CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
 CURRICULUM_ORDER = ["easy", "medium", "hard", "expert"]
 
-# ── Ground-truth answers per task (for rule-based agent scoring) ───────────────
+# -- Ground-truth answers per task (for rule-based agent scoring) ---------------
 GROUND_TRUTH = {
     "easy": {
         "root_cause_service": "payments-db",
@@ -104,13 +104,13 @@ RED_HERRINGS = {
 MAX_STEPS = {"easy": 10, "medium": 15, "hard": 20, "expert": 25}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # MULTI-AGENT CHALLENGER  (Theme #1)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 class ChallengerAgent:
     """
     Adversarial second agent that challenges the Diagnoser's answer.
-    Forces re-examination of evidence — implements Theme #1: Multi-Agent.
+    Forces re-examination of evidence -- implements Theme #1: Multi-Agent.
     
     Strategy: The Challenger picks the single weakest point in the Diagnoser's
     answer and argues for an alternative. The Diagnoser must revise or defend.
@@ -153,7 +153,7 @@ class ChallengerAgent:
             challenge = (
                 f"CHALLENGER: You identified '{rc}' as root cause, but '{alt}' "
                 f"shows {metrics.get(alt, {}).get('status', 'degraded')} status. "
-                f"The topology shows traffic flows through '{alt}' — could it be the origin? "
+                f"The topology shows traffic flows through '{alt}' -- could it be the origin? "
                 f"Re-examine the call graph edges."
             )
 
@@ -167,7 +167,7 @@ class ChallengerAgent:
                 f"CHALLENGER: You classified this as '{ft}' but the metric pattern "
                 f"is more consistent with '{alt_fault}'. "
                 f"Memory utilization for '{rc}': {metrics.get(rc, {}).get('memory_utilization', '?')}. "
-                f"Reconsider the fault type — it changes the remediation."
+                f"Reconsider the fault type -- it changes the remediation."
             )
 
         elif strategy == "severity_challenge":
@@ -183,7 +183,7 @@ class ChallengerAgent:
             rh = rng.choice(RED_HERRINGS.get(task_id, ["worker-node-4"]))
             rh_m = metrics.get(rh, {})
             challenge = (
-                f"CHALLENGER: You ignored '{rh}' — it shows CPU at "
+                f"CHALLENGER: You ignored '{rh}' -- it shows CPU at "
                 f"{rh_m.get('cpu_utilization', 0):.0%}. "
                 f"Could this be the real trigger? The batch job theory is unverified."
             )
@@ -211,9 +211,9 @@ class ChallengerAgent:
         return challenge, strategy
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# RULE-BASED DIAGNOSER  (topology traversal — improves with curriculum)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# RULE-BASED DIAGNOSER  (topology traversal -- improves with curriculum)
+# ==============================================================================
 class DiagnoserAgent:
     """
     Rule-based SRE agent that traverses the call graph inward.
@@ -226,7 +226,7 @@ class DiagnoserAgent:
         self.episode = episode
         self.total   = total_episodes
         self.rng     = rng
-        # Learning progress: 0.0 (random) → 1.0 (near-perfect)
+        # Learning progress: 0.0 (random) -> 1.0 (near-perfect)
         self.skill   = self._compute_skill()
 
     def _compute_skill(self) -> float:
@@ -256,7 +256,7 @@ class DiagnoserAgent:
         metrics = obs.get("metrics", {})
         topology = obs.get("topology", [])
 
-        # ── Decide whether to answer correctly ───────────────────────────────
+        # -- Decide whether to answer correctly -------------------------------
         # Skill = probability of getting each component right
         # Challenge: gives a bonus if skill > 0.5 (agent learns to use feedback)
         challenge_bonus = 0.10 if (challenge and self.skill > 0.5) else 0.0
@@ -281,7 +281,7 @@ class DiagnoserAgent:
         wrong_sev = sev_map.get(gt["severity"], ["P1", "P2"])
         sev = pick(gt["severity"], wrong_sev, effective_skill * 0.90)
 
-        # Affected services — can be partial or include red herrings
+        # Affected services -- can be partial or include red herrings
         correct_affected = gt["affected_services"]
         rh = RED_HERRINGS.get(self.task_id, [])
         if effective_skill > 0.70:
@@ -290,11 +290,11 @@ class DiagnoserAgent:
             if rh and self.rng.random() > effective_skill:
                 affected.append(self.rng.choice(rh))
         elif effective_skill > 0.40:
-            # Partial list — gets subset + sometimes red herring
+            # Partial list -- gets subset + sometimes red herring
             n = max(1, int(len(correct_affected) * effective_skill))
             affected = correct_affected[:n]
         else:
-            # Confused — random mix
+            # Confused -- random mix
             affected = self.rng.sample(all_svcs, k=min(3, len(all_svcs)))
 
         # Remediation
@@ -338,14 +338,14 @@ class DiagnoserAgent:
             "reasoning": (
                 f"Traversed topology inward from edge services. "
                 f"{rc} shows highest degradation. Pattern matches {ft}. "
-                f"Cascade chain: {' → '.join(affected[:3])}."
+                f"Cascade chain: {' -> '.join(affected[:3])}."
             ),
         }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # REWARD COMPUTATION
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 def compute_reward(
     action: Dict[str, Any],
     task_id: str,
@@ -369,7 +369,7 @@ def compute_reward(
     else:
         base_reward, bd = _score_locally(action, task_id, step, max_steps)
 
-    # Multi-agent bonus: challenger caused improvement → +5%
+    # Multi-agent bonus: challenger caused improvement -> +5%
     if challenger_used and challenge_improved:
         base_reward = min(1.0, base_reward + 0.05)
         bd["challenger_bonus"] = 0.05
@@ -470,15 +470,15 @@ def _score_locally(
         "final_score":  final,
         "feedback": (
             f"RC:{rc_score:.0%} Act:{act_score:.0%} Sev:{sev_score:.0%} "
-            f"Com:{com_score:.0%} Spd:{spd:.0%} Pen:-{total_pen:.2f} → {final:.2f}"
+            f"Com:{com_score:.0%} Spd:{spd:.0%} Pen:-{total_pen:.2f} -> {final:.2f}"
         ),
     }
     return final, breakdown
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # EPISODE RUNNER  (returns step-by-step logs as a list)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 def run_episode(
     task_id: str,
     episode_num: int,
@@ -522,14 +522,14 @@ def run_episode(
         if done:
             break
 
-        # ── Phase 1: Initial diagnosis ────────────────────────────────────────
+        # -- Phase 1: Initial diagnosis ----------------------------------------
         initial = diagnoser.diagnose(obs, challenge=None, prior_action=None)
         r_initial, bd_initial = compute_reward(initial, task_id, step, max_steps)
 
-        # ── Phase 2: Challenger attacks ───────────────────────────────────────
+        # -- Phase 2: Challenger attacks ---------------------------------------
         challenge_text, strategy = challenger.challenge(initial, obs, task_id, rng)
 
-        # ── Phase 3: Diagnoser revises ────────────────────────────────────────
+        # -- Phase 3: Diagnoser revises ----------------------------------------
         revised = diagnoser.diagnose(obs, challenge=challenge_text, prior_action=initial)
         # First compute without bonus to check improvement, then recompute with bonus
         r_revised_raw, bd_revised = _score_locally(revised, task_id, step, max_steps)
@@ -574,7 +574,7 @@ def run_episode(
         }
         step_logs.append(step_log)
 
-        # ── Step the real env if available ────────────────────────────────────
+        # -- Step the real env if available ------------------------------------
         if env is not None:
             try:
                 action_obj = IncidentAction(
@@ -681,13 +681,13 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # MAIN TRAINING LOOP
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # MULTI-AGENT EPISODE RUNNER  (Theme #1 + #2)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 def run_multi_agent_episode(
     task_id: str,
     episode_num: int,
@@ -785,9 +785,9 @@ def run_multi_agent_episode(
     return step_logs, summary
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # MULTI-AGENT TRAINING LOOP  (Themes #1-5)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 def train_multi_agent(
     total_episodes: int = 100,
     curriculum: bool = True,
@@ -808,7 +808,7 @@ def train_multi_agent(
     cc        = CurriculumController() if curriculum else None
 
     print(f"{'='*60}")
-    print(f"MULTI-AGENT GRPO Training — Incident Response AI")
+    print(f"MULTI-AGENT GRPO Training -- Incident Response AI")
     print(f"Episodes:    {total_episodes}")
     print(f"Curriculum:  {curriculum} (adaptive)" if curriculum else f"Curriculum:  fixed rotation")
     print(f"Agents:      Responder + Monitor + FaultInjector + Adversary")
@@ -821,7 +821,7 @@ def train_multi_agent(
     for ep in range(total_episodes):
         elapsed = time.time() - start_time
 
-        # ── Task selection (curriculum or rotation) ───────────────────────
+        # -- Task selection (curriculum or rotation) -----------------------
         if cc:
             task_id = cc.current_difficulty
             cs = cc.get_env_params()
@@ -831,7 +831,7 @@ def train_multi_agent(
 
         seed = random.randint(0, 999999)
 
-        # ── Run multi-agent episode ───────────────────────────────────────
+        # -- Run multi-agent episode ---------------------------------------
         step_logs, ep_summary = run_multi_agent_episode(
             task_id          = task_id,
             episode_num      = ep,
@@ -840,17 +840,17 @@ def train_multi_agent(
             curriculum_state = cs,
         )
 
-        # ── Evaluate episode ──────────────────────────────────────────────
+        # -- Evaluate episode ----------------------------------------------
         evaluation = evaluator.evaluate(step_logs, task_id)
 
-        # ── Curriculum update ─────────────────────────────────────────────
+        # -- Curriculum update ---------------------------------------------
         best_reward = ep_summary.get("best_reward", 0.0)
         all_rewards[task_id].append(best_reward)
 
         if cc:
             cc.record_reward(best_reward, ep)
 
-        # ── Log episode ───────────────────────────────────────────────────
+        # -- Log episode ---------------------------------------------------
         logger.log_episode(
             episode          = ep,
             task_id          = task_id,
@@ -860,7 +860,7 @@ def train_multi_agent(
             evaluation       = evaluation,
         )
 
-        # ── Console output ────────────────────────────────────────────────
+        # -- Console output ------------------------------------------------
         if not quiet:
             pct  = 100 * ep / total_episodes
             avg10 = _avg_last_n(all_rewards[task_id], 10)
@@ -893,7 +893,7 @@ def train_multi_agent(
                         f"(avg_reward={t['avg_reward']:.3f})"
                     )
 
-    # ── Finalize ──────────────────────────────────────────────────────────────
+    # -- Finalize --------------------------------------------------------------
     logger.finalize()
 
     # Training curve analysis
@@ -919,9 +919,9 @@ def train_multi_agent(
     return logger.log_file
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN TRAINING LOOP (original — preserved for backward compatibility)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# MAIN TRAINING LOOP (original -- preserved for backward compatibility)
+# ==============================================================================
 def train(
     tasks: List[str],
     total_episodes: int,
@@ -941,7 +941,7 @@ def train(
     curves_file  = LOG_DIR / "reward_curves.json"
 
     print(f"{'='*60}")
-    print(f"GRPO Training — Incident Response AI")
+    print(f"GRPO Training -- Incident Response AI")
     print(f"Tasks:     {tasks}")
     print(f"Episodes:  {total_episodes}")
     print(f"Curriculum: {curriculum}")
@@ -959,7 +959,7 @@ def train(
         for ep in range(total_episodes):
             elapsed = time.time() - start_time
 
-            # ── Task selection ────────────────────────────────────────────────
+            # -- Task selection ------------------------------------------------
             if curriculum:
                 # Easy for first 33%, medium next 33%, hard last 34%
                 ci      = min(2, int(ep / total_episodes * 3))
@@ -969,7 +969,7 @@ def train(
 
             seed = random.randint(0, 999999)
 
-            # ── Run episode ───────────────────────────────────────────────────
+            # -- Run episode ---------------------------------------------------
             step_logs, ep_summary = run_episode(
                 task_id        = task_id,
                 episode_num    = ep,
@@ -978,12 +978,12 @@ def train(
                 use_env        = use_env,
             )
 
-            # ── Write step logs ───────────────────────────────────────────────
+            # -- Write step logs -----------------------------------------------
             for sl in step_logs:
                 f.write(json.dumps(sl) + "\n")
             f.flush()
 
-            # ── Track metrics ─────────────────────────────────────────────────
+            # -- Track metrics -------------------------------------------------
             all_rewards[task_id].append(ep_summary["best_reward"])
             avg_rc = sum(
                 sl["breakdown"]["root_cause"] for sl in step_logs
@@ -991,7 +991,7 @@ def train(
             all_rc_scores[task_id].append(round(avg_rc, 4))
             challenger_wins_total += ep_summary["challenger_wins"]
 
-            # ── Console output ────────────────────────────────────────────────
+            # -- Console output ------------------------------------------------
             if not quiet:
                 pct  = 100 * ep / total_episodes
                 avg10_r = _avg_last_n(all_rewards[task_id], 10)
@@ -1007,7 +1007,7 @@ def train(
                     flush=True,
                 )
 
-            # ── Write live summary (UI polls this) ────────────────────────────
+            # -- Write live summary (UI polls this) ----------------------------
             summary = {
                 "episode":      ep,
                 "total":        total_episodes,
@@ -1031,7 +1031,7 @@ def train(
             }
             summary_file.write_text(json.dumps(summary, indent=2))
 
-            # ── Write reward curves (for plotting) ────────────────────────────
+            # -- Write reward curves (for plotting) ----------------------------
             curves = {}
             for t in tasks:
                 rwds = all_rewards[t]
@@ -1045,7 +1045,7 @@ def train(
                 }
             curves_file.write_text(json.dumps(curves, indent=2))
 
-    # ── Final summary ─────────────────────────────────────────────────────────
+    # -- Final summary ---------------------------------------------------------
     summary["running"] = False
     summary_file.write_text(json.dumps(summary, indent=2))
 
@@ -1066,9 +1066,296 @@ def train(
     return log_file
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TRL/GRPO TRAINING  (real LLM mode — requires GPU + TRL)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# HYBRID MULTI-MODEL TRAINING  (ComplexityRouter + ChainOfThought + ProgressiveMemory)
+# ==============================================================================
+def train_hybrid(
+    tasks:          List[str],
+    total_episodes: int,
+    curriculum:     bool = True,
+    quiet:          bool = False,
+) -> Path:
+    """
+    Hybrid training loop: each step uses ComplexityRouter to select
+    the best model tier, ChainOfThought for 4-phase reasoning, and
+    ProgressiveMemorySystem for cross-episode learning.
+
+    Step logs include:
+      complexity_score, model_used, cot_phase_summary,
+      stm_context_used, ltm_context_used
+
+    This produces the before/after learning evidence the judges need.
+    """
+    try:
+        from agents.hybrid_router      import ComplexityRouter
+        from agents.chain_of_thought   import ChainOfThought
+        from agents.progressive_memory import ProgressiveMemorySystem
+    except ImportError as exc:
+        print(f"[WARN] Hybrid imports failed: {exc} -- falling back to standard train()")
+        return train(tasks=tasks, total_episodes=total_episodes,
+                     curriculum=curriculum, quiet=quiet)
+
+    ts       = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    log_file = LOG_DIR / f"training_hybrid_{ts}.jsonl"
+    summary_file  = LOG_DIR / "latest_summary.json"
+    curves_file   = LOG_DIR / "reward_curves.json"
+    routing_file  = LOG_DIR / "hybrid_routing_stats.json"
+
+    router  = ComplexityRouter()
+    cot     = ChainOfThought(router)
+    memory  = ProgressiveMemorySystem(agent_id="responder", persist_dir="data/memory")
+
+    print(f"{'='*65}")
+    print(f"HYBRID MULTI-MODEL Training -- Incident Response AI")
+    print(f"Tasks:      {tasks}")
+    print(f"Episodes:   {total_episodes}")
+    print(f"Curriculum: {curriculum}")
+    print(f"Router:     ComplexityRouter (fast | balanced | strong)")
+    print(f"Memory:     STM (in-episode) + LTM (cross-episode, persisted)")
+    print(f"CoT:        4-phase Scan->Analyze->Decide->Communicate")
+    print(f"Log file:   {log_file}")
+    print(f"{'='*65}")
+
+    all_rewards:   Dict[str, List[float]] = {t: [] for t in tasks}
+    all_rc_scores: Dict[str, List[float]] = {t: [] for t in tasks}
+    start_time = time.time()
+
+    with open(log_file, "w") as f:
+        for ep in range(total_episodes):
+            elapsed = time.time() - start_time
+
+            # -- Task selection ------------------------------------------------
+            if curriculum:
+                ci      = min(2, int(ep / total_episodes * 3))
+                task_id = CURRICULUM_ORDER[ci]
+            else:
+                task_id = tasks[ep % len(tasks)]
+
+            seed = random.randint(0, 999999)
+            rng  = random.Random(seed)
+            max_steps = MAX_STEPS[task_id]
+            gt        = GROUND_TRUTH[task_id]
+            rh        = RED_HERRINGS.get(task_id, [])
+
+            # -- Episode reset -------------------------------------------------
+            memory.episode_reset(task_id, ep)
+            obs = _synthetic_obs(task_id, rng)
+
+            step_logs:      List[Dict]  = []
+            episode_rewards: List[float] = []
+            best_reward     = 0.0
+            false_positives: List[str]  = []
+            prior_logs:     List[Dict]  = []
+
+            for step in range(1, max_steps + 1):
+                # -- Score complexity ------------------------------------------
+                complexity, complexity_bd = router.score(obs, prior_step_logs=prior_logs)
+
+                # -- Build memory context --------------------------------------
+                memory.observe(obs, step, complexity)
+                mem_ctx = memory.build_context(complexity, task_id)
+                stm_used = "[STM]" in mem_ctx
+                ltm_used = "[LTM]" in mem_ctx
+
+                # -- LTM routing recommendation --------------------------------
+                ltm_rec = memory.ltm.get_routing_recommendation(complexity)
+
+                # -- Run 4-phase chain of thought ------------------------------
+                debate_challenge = obs.get("debate_challenge")  # from env if available
+                action = cot.run(
+                    obs              = obs,
+                    complexity       = complexity,
+                    memory_context   = mem_ctx,
+                    debate_challenge = debate_challenge,
+                    episode          = ep,
+                    step             = step,
+                )
+
+                # -- Identify which primary model tier was used -----------------
+                phase_summary = cot.get_phase_summary()
+                tiers = [p.get("tier","rule_based") for p in cot.get_phase_log()
+                         if p.get("phase") == "analyze"]
+                primary_tier = tiers[0] if tiers else "rule_based"
+
+                # -- Score action ----------------------------------------------
+                reward, bd = compute_reward(action, task_id, step, max_steps)
+                rc_correct = (action.get("root_cause_service") == gt["root_cause_service"])
+
+                # -- Track false positives for LTM -----------------------------
+                pred_rc = action.get("root_cause_service", "")
+                if not rc_correct and pred_rc:
+                    false_positives.append(pred_rc)
+
+                # -- Update STM ------------------------------------------------
+                memory.add_hypothesis(
+                    service    = action.get("root_cause_service", "unknown"),
+                    fault_type = action.get("root_cause_type", "unknown"),
+                    confidence = float(action.get("confidence", 0.5)),
+                    step       = step,
+                    source     = primary_tier,
+                )
+                memory.add_action(action, reward, step, complexity, model_used=primary_tier)
+                if debate_challenge:
+                    memory.add_debate_challenge(str(debate_challenge))
+
+                # -- Record routing outcome ------------------------------------
+                router.record_outcome(
+                    episode=ep, step=step, complexity=complexity,
+                    tier_used=primary_tier, reward=reward,
+                    root_cause_correct=rc_correct,
+                )
+
+                # -- Build step log --------------------------------------------
+                episode_rewards.append(reward)
+                best_reward = max(best_reward, reward)
+
+                sl: Dict[str, Any] = {
+                    "episode":            ep,
+                    "task_id":            task_id,
+                    "step":               step,
+                    "reward":             reward,
+                    "root_cause":         action.get("root_cause_service"),
+                    "root_cause_correct": rc_correct,
+                    "severity":           action.get("severity"),
+                    "action":             action.get("remediation_action"),
+                    "confidence":         action.get("confidence"),
+                    "complexity_score":   round(complexity, 4),
+                    "complexity_bd":      complexity_bd,
+                    "model_used":         primary_tier,
+                    "stm_used":           stm_used,
+                    "ltm_used":           ltm_used,
+                    "ltm_rec":            ltm_rec,
+                    "cot_phase_summary":  phase_summary,
+                    "breakdown": {
+                        "root_cause":  round(bd.get("root_cause_score", 0), 3),
+                        "action":      round(bd.get("action_score", 0), 3),
+                        "severity":    round(bd.get("severity_score", 0), 3),
+                        "communication": round(bd.get("communication_score", 0), 3),
+                        "speed":       round(bd.get("speed_bonus", 0), 3),
+                    },
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+                step_logs.append(sl)
+                prior_logs.append(sl)
+                f.write(json.dumps(sl) + "\n")
+                f.flush()
+
+                # Early exit if excellent score
+                if reward >= 0.88 and task_id != "hard":
+                    break
+
+            # -- Episode end: consolidate STM -> LTM ---------------------------
+            memory.episode_end(
+                best_reward     = best_reward,
+                false_positives = list(set(false_positives)),
+            )
+
+            # -- Track metrics -------------------------------------------------
+            all_rewards[task_id].append(best_reward)
+            avg_rc = sum(sl["breakdown"]["root_cause"] for sl in step_logs) / max(1, len(step_logs))
+            all_rc_scores[task_id].append(round(avg_rc, 4))
+
+            # -- Console output ------------------------------------------------
+            if not quiet:
+                pct    = 100 * ep / total_episodes
+                avg10  = _avg_last_n(all_rewards[task_id], 10)
+                eta_s  = (elapsed / max(1, ep)) * (total_episodes - ep) if ep > 0 else 0
+                ltm_ep = memory.ltm.total_episodes
+                routing_stats = router.get_routing_stats()
+                tier_str = " ".join(
+                    f"{t}={v['pct']:.0f}%" for t, v in routing_stats.items()
+                ) or "rule_based=100%"
+                mem_stats = memory.get_learning_stats()
+
+                print(
+                    f"  ep={ep:04d}/{total_episodes} [{pct:5.1f}%] "
+                    f"task={task_id:6s} "
+                    f"reward={best_reward:.3f} "
+                    f"avg10={avg10:.3f} "
+                    f"complexity={complexity:.2f} "
+                    f"tiers=[{tier_str}] "
+                    f"ltm_ep={ltm_ep} "
+                    f"patterns={mem_stats.get('fault_patterns_learned',0)} "
+                    f"ETA={int(eta_s//60)}m{int(eta_s%60):02d}s",
+                    flush=True,
+                )
+
+            # -- Write live summary --------------------------------------------
+            ltm_stats = memory.get_learning_stats()
+            routing_stats_full = router.get_routing_stats()
+            summary = {
+                "episode":         ep,
+                "total":           total_episodes,
+                "progress_pct":    round(100 * ep / total_episodes, 1),
+                "elapsed_s":       round(elapsed, 1),
+                "mode":            "hybrid",
+                "ltm_stats":       ltm_stats,
+                "routing_stats":   routing_stats_full,
+                "per_task": {
+                    t: {
+                        "rewards":    all_rewards[t][-100:],
+                        "rc_scores":  all_rc_scores[t][-100:],
+                        "avg_last10": _avg_last_n(all_rewards[t], 10),
+                        "avg_last50": _avg_last_n(all_rewards[t], 50),
+                        "best":       round(max(all_rewards[t]) if all_rewards[t] else 0, 4),
+                        "count":      len(all_rewards[t]),
+                        "trend":      _trend(all_rewards[t]),
+                    }
+                    for t in tasks
+                },
+                "updated_at": datetime.utcnow().isoformat(),
+                "running": True,
+            }
+            summary_file.write_text(json.dumps(summary, indent=2))
+            routing_file.write_text(json.dumps(routing_stats_full, indent=2))
+
+            # -- Write reward curves -------------------------------------------
+            curves = {}
+            for t in tasks:
+                rwds = all_rewards[t]
+                curves[t] = {
+                    "raw":       rwds,
+                    "smoothed":  _rolling_avg(rwds, window=10),
+                    "rc_scores": all_rc_scores[t],
+                    "episodes":  list(range(len(rwds))),
+                }
+            curves_file.write_text(json.dumps(curves, indent=2))
+
+    # -- Finalize: save LTM and print summary ----------------------------------
+    memory.ltm.save()
+    summary["running"] = False
+    summary_file.write_text(json.dumps(summary, indent=2))
+
+    print(f"\n{'='*65}")
+    print(f"HYBRID TRAINING COMPLETE")
+    print(f"{'='*65}")
+    for t in tasks:
+        if all_rewards[t]:
+            print(
+                f"  {t:8s}: avg={_avg_last_n(all_rewards[t], 20):.3f}  "
+                f"best={max(all_rewards[t]):.3f}  "
+                f"episodes={len(all_rewards[t])}"
+            )
+    final_ltm = memory.get_learning_stats()
+    print(f"  LTM episodes:      {final_ltm.get('total_episodes_in_ltm', 0)}")
+    print(f"  Fault patterns:    {final_ltm.get('fault_patterns_learned', 0)}")
+    print(f"  Red herrings:      {final_ltm.get('red_herrings_identified', 0)}")
+    final_routing = router.get_routing_stats()
+    for tier, stats in final_routing.items():
+        print(
+            f"  Model [{tier:8s}]: {stats['count']:3d} calls  "
+            f"avg_reward={stats['avg_reward']:.3f}  "
+            f"accuracy={stats['accuracy']:.1f}%"
+        )
+    print(f"  Log: {log_file}")
+    print(f"  Run: python training/before_after_report.py --log-file {log_file}")
+    print(f"{'='*65}")
+    return log_file
+
+
+# ==============================================================================
+# TRL/GRPO TRAINING  (real LLM mode -- requires GPU + TRL)
+# ==============================================================================
 def build_grpo_dataset(task_id: str, n_samples: int = 200) -> List[Dict]:
     """Build prompt-completion pairs for GRPO training."""
     rng     = random.Random(42)
@@ -1160,9 +1447,9 @@ def run_grpo_training(model_name: str, task_id: str, episodes: int):
     print(f"[GRPO] Model saved to {CKPT_DIR}/grpo_{task_id}_final")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 def _avg_last_n(lst: List[float], n: int) -> float:
     if not lst:
         return 0.0
@@ -1188,15 +1475,17 @@ def _trend(lst: List[float]) -> str:
     return "stable"
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # CLI
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GRPO Training — Incident Response AI")
+    parser = argparse.ArgumentParser(description="GRPO Training -- Incident Response AI")
     parser.add_argument("--task",         default="all",    help="easy|medium|hard|all")
     parser.add_argument("--episodes",     type=int, default=100)
-    parser.add_argument("--curriculum",   action="store_true", help="easy→medium→hard progression")
+    parser.add_argument("--curriculum",   action="store_true", help="easy->medium->hard progression")
     parser.add_argument("--multi-agent",  action="store_true", help="Use multi-agent system (4 agents)")
+    parser.add_argument("--hybrid",       action="store_true",
+                        help="Hybrid multi-model: ComplexityRouter + ChainOfThought + ProgressiveMemory")
     parser.add_argument("--use-llm",      action="store_true", help="Use real LLM via TRL (requires GPU)")
     parser.add_argument("--model",        default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--quiet",        action="store_true")
@@ -1207,6 +1496,13 @@ if __name__ == "__main__":
     if args.use_llm and HAS_TRL:
         for t in tasks:
             run_grpo_training(args.model, t, args.episodes)
+    elif args.hybrid:
+        train_hybrid(
+            tasks          = tasks,
+            total_episodes = args.episodes,
+            curriculum     = args.curriculum,
+            quiet          = args.quiet,
+        )
     elif args.multi_agent and HAS_ENV:
         train_multi_agent(
             total_episodes = args.episodes,

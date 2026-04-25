@@ -1,0 +1,75 @@
+{
+  "fault_patterns": {
+    "medium": {
+      "unknown": {
+        "hits": 29,
+        "weight": 0.669,
+        "best_action": "escalate",
+        "best_reward": 0.675
+      }
+    },
+    "hard": {
+      "unknown": {
+        "hits": 27,
+        "weight": 0.6878,
+        "best_action": "investigate_further",
+        "best_reward": 0.3055
+      }
+    },
+    "easy": {
+      "unknown": {
+        "hits": 1,
+        "weight": 0.9862,
+        "best_action": "escalate",
+        "best_reward": 0.745
+      },
+      "memory_leak": {
+        "hits": 1,
+        "weight": 0.9862,
+        "best_action": "restart_service",
+        "best_reward": 0.795
+      }
+    }
+  },
+  "remediation_stats": {
+    "unknown": {
+      "investigate_further": {
+        "attempts": 55,
+        "successes": 0
+      },
+      "escalate": {
+        "attempts": 2,
+        "successes": 2
+      }
+    },
+    "memory_leak": {
+      "restart_service": {
+        "attempts": 1,
+        "successes": 1
+      }
+    }
+  },
+  "routing_stats": {
+    "medium": {
+      "rule_based": {
+        "count": 50.0,
+        "avg_reward": 0.3402
+      },
+      "fast": {
+        "count": 6.0,
+        "avg_reward": 0.4018
+      }
+    },
+    "low": {
+      "fast": {
+        "count": 2.0,
+        "avg_reward": 0.77
+      }
+    }
+  },
+  "red_herring_seen": {
+    "unknown": 56
+  },
+  "total_episodes": 120,
+  "saved_at": "2026-04-25T11:55:49Z"
+}

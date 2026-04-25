@@ -147,12 +147,10 @@ class IncidentObservation(BaseModel):
         description="Running reward score so far this episode"
     )
 
-<<<<<<< Updated upstream
-    # Multi-agent debate (Responder ↔ Challenger ↔ Commander)
+    # Multi-agent debate (Responder ↔ Challenger)
     debate_challenge: Optional[str] = Field(
         default=None,
-        description="Adversarial challenge from the Challenger agent. "
-                    "The agent should address this in its next action."
+        description="Adversarial challenge from the Challenger agent."
     )
     debate_phase: Optional[str] = Field(
         default=None,
@@ -165,7 +163,8 @@ class IncidentObservation(BaseModel):
     debate_strategy: Optional[str] = Field(
         default=None,
         description="Challenge strategy used: topology_challenge, fault_type_challenge, etc."
-=======
+    )
+
     # Multi-agent context
     agent_messages: List[Dict[str, Any]] = Field(
         default_factory=list,
@@ -182,8 +181,8 @@ class IncidentObservation(BaseModel):
     hidden_evidence_unlocked: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Evidence revealed by investigation actions"
->>>>>>> Stashed changes
     )
+
 
     # Terminal state
     done: bool = Field(default=False)

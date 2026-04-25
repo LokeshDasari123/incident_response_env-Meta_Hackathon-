@@ -56,6 +56,9 @@ MAX_STEPS_PER_TASK = {
 MAX_RETRIES    = 2
 RETRY_WAIT     = 10
 
+# ── Hybrid mode flag (set via --hybrid CLI arg) ───────────────────────────────
+HYBRID_MODE = False
+
 # ── Stdout logging — EXACT required format ────────────────────────────────────
 def log_start(task: str, model: str) -> None:
     print(f"[START] task={task} env={BENCHMARK} model={model}", flush=True)
@@ -221,6 +224,162 @@ def call_llm(client: OpenAI, obs: Dict[str, Any], step: int,
     return fallback
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# HYBRID INFERENCE RUNNER
+# ══════════════════════════════════════════════════════════════════════════════
+class HybridTaskRunner:
+    """
+    Hybrid inference: uses ComplexityRouter + ChainOfThought + ProgressiveMemorySystem.
+    Replaces single-model call_llm() per step with 4-phase CoT reasoning.
+    Falls back transparently to rule-based if no API keys are set.
+    """
+
+    def __init__(self) -> None:
+        from agents.hybrid_router      import ComplexityRouter
+        from agents.chain_of_thought   import ChainOfThought
+        from agents.progressive_memory import ProgressiveMemorySystem
+        self.router = ComplexityRouter()
+        self.cot    = ChainOfThought(self.router)
+        self.memory = ProgressiveMemorySystem(
+            agent_id="responder", persist_dir="data/memory"
+        )
+
+    def run_task(
+        self,
+        task_id: str,
+        env_client: Any,
+    ) -> Dict[str, Any]:
+        """Run one hybrid episode. Same return signature as run_task()."""
+        max_steps = MAX_STEPS_PER_TASK[task_id]
+        rewards:   List[float] = []
+        steps_done = 0
+        success    = False
+        best_score = 0.0
+        prior_logs: List[Dict] = []
+
+        log_start(task=task_id, model=f"hybrid/{MODEL_NAME}")
+        self.memory.episode_reset(task_id, 0)
+
+        try:
+            result = env_client.reset(task_id=task_id)
+            obs    = result["observation"]
+
+            for step in range(1, max_steps + 1):
+                if result.get("done", False):
+                    break
+
+                # Score complexity
+                complexity, _ = self.router.score(obs, prior_step_logs=prior_logs)
+
+                # Build memory context
+                self.memory.observe(obs, step, complexity)
+                mem_ctx  = self.memory.build_context(complexity, task_id)
+                ltm_rec  = self.memory.ltm.get_routing_recommendation(complexity)
+
+                # Debate challenge from env observation
+                debate_ch = obs.get("debate_challenge")
+
+                # Run 4-phase CoT
+                action_dict = self.cot.run(
+                    obs              = obs,
+                    complexity       = complexity,
+                    memory_context   = mem_ctx,
+                    debate_challenge = debate_ch,
+                    episode          = 0,
+                    step             = step,
+                )
+
+                # Identify primary tier
+                phase_log = self.cot.get_phase_log()
+                tiers = [p.get("tier","rule_based") for p in phase_log
+                         if p.get("phase") == "analyze"]
+                primary_tier = tiers[0] if tiers else "rule_based"
+
+                # Submit to env
+                result   = env_client.step(action_dict)
+                obs      = result["observation"]
+                reward   = float(result.get("reward", 0.0))
+                done     = bool(result.get("done", False))
+
+                rewards.append(reward)
+                steps_done = step
+
+                # Update STM
+                self.memory.add_hypothesis(
+                    service    = action_dict.get("root_cause_service", "unknown"),
+                    fault_type = action_dict.get("root_cause_type", "unknown"),
+                    confidence = float(action_dict.get("confidence", 0.5)),
+                    step       = step,
+                    source     = primary_tier,
+                )
+                self.memory.add_action(
+                    action_dict, reward, step, complexity, model_used=primary_tier
+                )
+
+                if reward > best_score:
+                    best_score = reward
+
+                # Log step (with [HYBRID] prefix)
+                phase_summary = self.cot.get_phase_summary()
+                reasoning = action_dict.get("reasoning", "")
+                if isinstance(reasoning, str) and len(reasoning) > 100:
+                    reasoning = reasoning[:100] + "..."
+
+                action_log = json.dumps({
+                    "root_cause_service": action_dict.get("root_cause_service"),
+                    "root_cause_type":    action_dict.get("root_cause_type"),
+                    "remediation_action": action_dict.get("remediation_action"),
+                    "severity":           action_dict.get("severity"),
+                    "affected_services":  action_dict.get("affected_services", []),
+                    "reasoning":          reasoning,
+                    "[HYBRID]complexity": round(complexity, 3),
+                    "[HYBRID]tier":       primary_tier,
+                    "[HYBRID]phases":     phase_summary.get("phases_completed", 0),
+                    "[HYBRID]stm":        "[STM]" in mem_ctx,
+                    "[HYBRID]ltm":        "[LTM]" in mem_ctx,
+                })
+
+                log_step(step=step, action=action_log,
+                         reward=reward, done=done, error=None)
+
+                # Track in prior_logs for complexity scoring
+                prior_logs.append({
+                    "step": step, "reward": reward,
+                    "root_cause_correct": True,   # unknown at inference time
+                })
+
+                if done:
+                    break
+
+        except Exception as exc:
+            print(f"[DEBUG][HYBRID] Task {task_id} error: {exc}", flush=True)
+
+        # End episode: consolidate STM → LTM
+        self.memory.episode_end(best_reward=best_score)
+
+        score   = best_score
+        success = best_score >= SUCCESS_THRESHOLD
+        log_end(success=success, steps=steps_done, score=score, rewards=rewards)
+
+        # Print routing stats
+        rs = self.router.get_routing_stats()
+        if rs:
+            print("[HYBRID] Routing summary:", flush=True)
+            for tier, stats in rs.items():
+                print(f"  [{tier}] calls={int(stats['count'])} "
+                      f"avg_reward={stats['avg_reward']:.3f}", flush=True)
+
+        return {
+            "task_id":    task_id,
+            "success":    success,
+            "steps":      steps_done,
+            "rewards":    rewards,
+            "best_score": best_score,
+            "llm_calls":  len([p for p in self.cot.get_phase_log()
+                               if not p.get("fallback", True)]),
+        }
+
+
 def run_task(task_id: str,
              env_client: IncidentEnvClient,
              llm_client:  OpenAI) -> Dict[str, Any]:
@@ -370,14 +529,27 @@ def start_server_subprocess():
 
 
 def main():
+    global HYBRID_MODE
+
+    import argparse as _ap
+    cli = _ap.ArgumentParser(description="Incident Response AI Inference")
+    cli.add_argument("--hybrid", action="store_true",
+                     help="Use hybrid multi-model CoT + progressive memory")
+    cli_args, _ = cli.parse_known_args()
+    HYBRID_MODE = cli_args.hybrid
+
     print(f"[INFO] API_BASE_URL : {API_BASE_URL}", flush=True)
     print(f"[INFO] MODEL_NAME   : {MODEL_NAME}",   flush=True)
     print(f"[INFO] ENV_BASE_URL : {ENV_BASE_URL}",  flush=True)
-    print(f"[INFO] Token budget : easy={LLM_CALL_BUDGET['easy']} "
-          f"medium={LLM_CALL_BUDGET['medium']} "
-          f"hard={LLM_CALL_BUDGET['hard']} calls", flush=True)
+    if HYBRID_MODE:
+        print(f"[INFO] Mode         : HYBRID (ComplexityRouter + ChainOfThought + ProgressiveMemory)",
+              flush=True)
+    else:
+        print(f"[INFO] Token budget : easy={LLM_CALL_BUDGET['easy']} "
+              f"medium={LLM_CALL_BUDGET['medium']} "
+              f"hard={LLM_CALL_BUDGET['hard']} calls", flush=True)
 
-    if not API_KEY:
+    if not API_KEY and not HYBRID_MODE:
         print("[ERROR] HF_TOKEN not set.", flush=True)
         sys.exit(1)
 
@@ -394,24 +566,47 @@ def main():
             sys.exit(1)
         print("[INFO] Server ready.", flush=True)
 
-    llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    results    = []
+    results = []
 
     try:
         with IncidentEnvClient(base_url=ENV_BASE_URL) as env_client:
-            for task_id in TASKS:
-                print(f"\n{'='*60}", flush=True)
-                print(f"[INFO] Running task: {task_id.upper()}", flush=True)
-                print(f"{'='*60}", flush=True)
-                result = run_task(task_id, env_client, llm_client)
-                results.append(result)
-                print(
-                    f"[SUMMARY] task={task_id} "
-                    f"best_score={result['best_score']:.3f} "
-                    f"llm_calls={result['llm_calls']} "
-                    f"success={result['success']}",
-                    flush=True,
-                )
+            if HYBRID_MODE:
+                # ── Hybrid mode: CoT + progressive memory per task ────────────
+                hybrid_runner = HybridTaskRunner()
+                for task_id in TASKS:
+                    print(f"\n{'='*60}", flush=True)
+                    print(f"[HYBRID] Running task: {task_id.upper()}", flush=True)
+                    print(f"{'='*60}", flush=True)
+                    result = hybrid_runner.run_task(task_id, env_client)
+                    results.append(result)
+                    print(
+                        f"[HYBRID][SUMMARY] task={task_id} "
+                        f"best_score={result['best_score']:.3f} "
+                        f"api_calls={result['llm_calls']} "
+                        f"success={result['success']}",
+                        flush=True,
+                    )
+                # Save LTM after all tasks
+                hybrid_runner.memory.ltm.save()
+                print("[HYBRID] LTM saved to data/memory/responder_ltm.json", flush=True)
+                ltm_stats = hybrid_runner.memory.get_learning_stats()
+                print(f"[HYBRID] LTM stats: {ltm_stats}", flush=True)
+            else:
+                # ── Standard single-model mode ────────────────────────────────
+                llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+                for task_id in TASKS:
+                    print(f"\n{'='*60}", flush=True)
+                    print(f"[INFO] Running task: {task_id.upper()}", flush=True)
+                    print(f"{'='*60}", flush=True)
+                    result = run_task(task_id, env_client, llm_client)
+                    results.append(result)
+                    print(
+                        f"[SUMMARY] task={task_id} "
+                        f"best_score={result['best_score']:.3f} "
+                        f"llm_calls={result['llm_calls']} "
+                        f"success={result['success']}",
+                        flush=True,
+                    )
     finally:
         if server_proc:
             server_proc.terminate()
@@ -430,7 +625,8 @@ def main():
         total_calls += r["llm_calls"]
     avg = sum(r["best_score"] for r in results) / len(results) if results else 0.0
     print(f"  {'AVERAGE':8s} -> {avg:.3f}", flush=True)
-    print(f"  Total LLM calls: {total_calls}/9 budget", flush=True)
+    if not HYBRID_MODE:
+        print(f"  Total LLM calls: {total_calls}/9 budget", flush=True)
     print(f"{'='*60}", flush=True)
 
 
