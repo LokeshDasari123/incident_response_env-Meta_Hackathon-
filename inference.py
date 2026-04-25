@@ -22,13 +22,16 @@ import textwrap
 import time
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from openai import OpenAI
 from client.http_client import IncidentEnvClient
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "meta-llama/Llama-3.3-70B-Instruct")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "llama-3.3-70b-versatile")
+API_KEY      = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 BENCHMARK    = "incident-response"
 
@@ -79,21 +82,41 @@ You are an expert SRE triaging a production incident.
 
 APPROACH:
 1. Read the call graph topology — traverse INWARD from the edge service
-2. The root cause is the deepest service showing abnormal metrics
-3. List ALL services in the cascade chain in affected_services
-4. memory_leak = memory_utilization > 0.90 AND restart_count > 0
-5. network_partition = providerRPC_MCR drops to 0
-6. misconfiguration = RT spike immediately after config_change in timeline
-7. Red herrings = worker-node CPU spikes, unrelated memory warnings — IGNORE
+2. The root cause is the DEEPEST service showing abnormal metrics
+3. List ONLY services in the cascade chain in affected_services — NEVER include red herrings
+4. Red herrings = worker-node-*, network-switch-*, cache-service with only CPU spikes, unrelated batch jobs — EXCLUDE from affected_services
 
-Respond ONLY with valid JSON (no markdown):
+FAULT TYPE RULES:
+- misconfiguration = config_change in timeline + RT spike immediately after
+- memory_leak = memory_utilization > 0.85 AND restart_count > 0
+- network_partition = providerRPC_MCR drops to 0 or near-zero
+- crash_loop = restart_count > 2 AND service cycling
+
+SEVERITY RULES (CRITICAL — follow strictly):
+- P0 = ANY cascading failure affecting 2+ services OR payment/checkout impacted OR config_change caused outage
+- P1 = Single service degraded with user-facing impact
+- P2 = Internal service issue, no user impact
+- P3 = Monitoring noise only
+
+REMEDIATION RULES:
+- config_change caused it → fix_config
+- memory_leak / crash_loop → restart_service
+- network_partition → fix_config
+- unknown cascade → escalate
+
+STAKEHOLDER MESSAGE RULES:
+- ALWAYS include for P0 and P1
+- Must mention: the affected service name, user impact, and ETA
+- Example: "payments-db misconfiguration causing payment failures. Investigating, ETA 30 min."
+
+Respond ONLY with valid JSON (no markdown, no code fences):
 {
-  "root_cause_service": "<exact service name>",
+  "root_cause_service": "<exact service name from topology>",
   "root_cause_type": "<misconfiguration|memory_leak|network_partition|crash_loop|resource_exhaustion|auth_failure|dependency_failure|unknown>",
   "severity": "<P0|P1|P2|P3>",
-  "affected_services": ["<ALL services in cascade from root outward>"],
+  "affected_services": ["<ONLY cascade chain services, NO red herrings>"],
   "remediation_action": "<rollback|restart_service|scale_up|fix_config|increase_connection_pool|flush_cache|reroute_traffic|escalate|investigate_further>",
-  "stakeholder_message": "<P0/P1 only: service + impact + ETA>",
+  "stakeholder_message": "<REQUIRED for P0/P1: service + impact + ETA>",
   "confidence": <0.0-1.0>,
   "reasoning": "<call graph traversal step by step>"
 }
@@ -399,14 +422,14 @@ def main():
     total_calls = 0
     for r in results:
         print(
-            f"  {r['task_id']:8s} → best={r['best_score']:.3f} "
+            f"  {r['task_id']:8s} -> best={r['best_score']:.3f} "
             f"steps={r['steps']} llm_calls={r['llm_calls']} "
             f"success={r['success']}",
             flush=True,
         )
         total_calls += r["llm_calls"]
     avg = sum(r["best_score"] for r in results) / len(results) if results else 0.0
-    print(f"  {'AVERAGE':8s} → {avg:.3f}", flush=True)
+    print(f"  {'AVERAGE':8s} -> {avg:.3f}", flush=True)
     print(f"  Total LLM calls: {total_calls}/9 budget", flush=True)
     print(f"{'='*60}", flush=True)
 

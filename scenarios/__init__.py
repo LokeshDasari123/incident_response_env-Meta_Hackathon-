@@ -6,6 +6,11 @@ from scenarios.base_scenario import (
     load_scenario,
     SCENARIO_MAP,
 )
+from scenarios.scenario_generator import (
+    DynamicScenario,
+    ScenarioVariantGenerator,
+    generate_scenario_variant,
+)
 
 __all__ = [
     "BaseScenario",
@@ -14,4 +19,8 @@ __all__ = [
     "HardScenario",
     "load_scenario",
     "SCENARIO_MAP",
+    # Dynamic generation
+    "DynamicScenario",
+    "ScenarioVariantGenerator",
+    "generate_scenario_variant",
 ]

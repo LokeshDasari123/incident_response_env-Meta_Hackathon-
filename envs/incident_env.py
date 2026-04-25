@@ -1,4 +1,4 @@
-﻿"""
+"""
 envs/incident_env.py
 --------------------
 Core Incident Response Environment.
@@ -14,6 +14,7 @@ from models.action      import IncidentAction
 from models.observation import IncidentObservation
 from models.state       import IncidentState
 from scenarios          import load_scenario, BaseScenario
+from scenarios.scenario_generator import generate_scenario_variant
 
 # Per-task thresholds: episode ends when agent exceeds this score
 # Hard task has NO early termination — must run all steps
@@ -49,7 +50,24 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._last_root_cause: str             = ""
         self._repeat_count:    int             = 0
 
-    def reset(self, task_id: str = "easy") -> IncidentObservation:
+    def reset(
+        self,
+        task_id: str = "easy",
+        *,
+        dynamic: bool = True,
+        seed: Optional[int] = None,
+    ) -> IncidentObservation:
+        """
+        Reset the environment to initial state.
+
+        Args:
+            task_id: Difficulty level ("easy", "medium", "hard")
+            dynamic: If True (default), generates a randomized variant
+                     with jittered metrics to prevent agent overfitting.
+                     If False, uses the static base scenario template.
+            seed:    Optional RNG seed for reproducible variants.
+                     Only used when dynamic=True.
+        """
         if task_id not in self.VALID_TASKS:
             raise ValueError(f"task_id must be one of {self.VALID_TASKS}")
 
@@ -60,7 +78,12 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._best_score      = 0.0
         self._last_root_cause = ""
         self._repeat_count    = 0
-        self._scenario       = load_scenario(task_id)
+
+        # Dynamic variant generation — each reset produces unique metrics
+        if dynamic:
+            self._scenario = generate_scenario_variant(task_id, seed=seed)
+        else:
+            self._scenario = load_scenario(task_id)
 
         episode_id = f"ep_{uuid.uuid4().hex[:6]}"
         self._state = IncidentState(
@@ -173,6 +196,7 @@ class IncidentResponseEnv(BaseIncidentEnv):
         assert self._scenario is not None
         assert self._state    is not None
 
+        max_s         = self._scenario.max_steps
         sla_step      = self._scenario.sla_breach_step
         time_pressure = 0.0
         sla_breach_in = None
@@ -192,15 +216,25 @@ class IncidentResponseEnv(BaseIncidentEnv):
         elif self._score_history:
             prev_actions = self._score_history[-3:]
 
+        # ── Progressive observations ─────────────────────────────────────────
+        # Metrics, alerts, topology, and timeline all evolve per step.
+        # The incident cascades outward from the root cause through the
+        # service dependency graph. Early steps show partial degradation;
+        # later steps show full cascade with all services affected.
+        alerts   = self._scenario.get_alerts_at_step(self._step, max_s)
+        metrics  = self._scenario.get_metrics_at_step(self._step, max_s)
+        topology = self._scenario.get_topology_at_step(self._step, max_s)
+        timeline = self._scenario.get_timeline_at_step(self._step, max_s)
+
         return IncidentObservation(
             step                = self._step,
-            max_steps           = self._scenario.max_steps,
+            max_steps           = max_s,
             task_id             = self._task_id,
             episode_id          = self._state.episode_id,
-            alerts              = self._scenario.get_alerts_for_agent(),
-            metrics             = self._scenario.get_metrics_snapshot(),
-            topology            = self._scenario.get_topology_for_agent(),
-            timeline            = self._scenario.timeline,
+            alerts              = alerts,
+            metrics             = metrics,
+            topology            = topology,
+            timeline            = timeline,
             time_pressure       = time_pressure,
             sla_breach_in_steps = sla_breach_in,
             previous_actions    = prev_actions,
@@ -208,10 +242,12 @@ class IncidentResponseEnv(BaseIncidentEnv):
             done                = done,
             reward              = reward,
             info                = {
-                "scenario_name": self._scenario.name,
-                "fault_type":    self._scenario.fault_type,
-                "num_services":  len(self._scenario.services),
-                "num_alerts":    len(self._scenario.alerts),
-                "best_score":    self._best_score,
+                "scenario_name":    self._scenario.name,
+                "fault_type":       self._scenario.fault_type,
+                "num_services":     len(self._scenario.services),
+                "num_alerts":       len(alerts),
+                "total_alerts":     len(self._scenario.alerts),
+                "best_score":       self._best_score,
+                "cascade_progress": round(self._step / max_s, 3) if max_s > 0 else 0.0,
             },
         )

@@ -133,6 +133,311 @@ class BaseScenario(ABC):
     def get_red_herring_services(self) -> List[str]:
         return self.ground_truth.get("red_herring_services", [])
 
+    # ── Progressive Observation Methods ───────────────────────────────────────
+    # These enable observations that evolve over time: the incident starts at
+    # the root cause and cascades outward through the topology. Each service
+    # degrades based on its distance from the root cause in the call graph.
+
+    def _compute_cascade_order(self) -> Dict[str, int]:
+        """
+        BFS from root cause through reverse topology edges.
+
+        Returns {service_name: onset_step} where onset_step is the number
+        of hops from the root cause. Services not in the topology (red
+        herrings, orphans) are NOT included in the result.
+
+        The result is cached on the instance for the episode duration.
+        """
+        if hasattr(self, '_cascade_order_cache') and self._cascade_order_cache is not None:
+            return self._cascade_order_cache
+
+        rc = self.ground_truth.get("root_cause_service", "")
+
+        # Build reverse adjacency: downstream → [upstreams]
+        # Cascade propagates from downstream (root cause) to upstream (consumers)
+        reverse_adj: Dict[str, List[str]] = {}
+        for edge in self.topology:
+            ds = edge["downstream"]
+            us = edge["upstream"]
+            reverse_adj.setdefault(ds, []).append(us)
+
+        # BFS from root cause
+        order: Dict[str, int] = {rc: 0}
+        queue = [rc]
+        while queue:
+            current = queue.pop(0)
+            for upstream in reverse_adj.get(current, []):
+                if upstream not in order:
+                    order[upstream] = order[current] + 1
+                    queue.append(upstream)
+
+        self._cascade_order_cache = order
+        return order
+
+    @staticmethod
+    def _cascade_factor(step: int, onset_step: int, max_steps: int) -> float:
+        """
+        Degradation factor [0.0 → 1.0] for a service at a given step.
+
+        - Root cause (onset=0): always 1.0 (already fully broken)
+        - Cascade services: start at 0.0, jump to 0.2 at onset, then
+          smooth ramp to 1.0 over ~30% of the episode length.
+
+        The curve uses quadratic easing: fast initial degradation
+        (visible to agent immediately), then gradual approach to 1.0.
+        """
+        if onset_step == 0:
+            return 1.0  # Root cause: always fully degraded
+
+        if step < onset_step:
+            return 0.0  # Cascade hasn't reached this service yet
+
+        steps_since = step - onset_step
+        # Services fully degrade over ~30% of episode, minimum 2 steps
+        window = max(2, int(max_steps * 0.3))
+        progress = min(1.0, steps_since / window)
+
+        # Quadratic ease-in: immediate 20% jump, then smooth curve to 100%
+        initial_jump = 0.2
+        remaining = 1.0 - initial_jump
+        factor = initial_jump + remaining * (1.0 - (1.0 - progress) ** 2)
+        return round(min(1.0, factor), 4)
+
+    @staticmethod
+    def _interpolate(normal: float, incident: float, factor: float) -> float:
+        """Linear interpolation: normal → incident scaled by factor."""
+        return round(normal + (incident - normal) * factor, 4)
+
+    @staticmethod
+    def _status_from_factor(factor: float) -> str:
+        """Map degradation factor to human-readable status."""
+        if factor < 0.1:
+            return "healthy"
+        if factor < 0.4:
+            return "degraded"
+        if factor < 0.75:
+            return "critical"
+        return "failing"
+
+    def get_metrics_at_step(self, step: int, max_steps: int) -> Dict[str, Any]:
+        """
+        Progressive metrics: services degrade over time based on
+        their position in the cascade chain.
+
+        - Root cause: at full incident values from step 0
+        - Direct dependents (1 hop): start degrading at step 1
+        - Indirect dependents (2+ hops): delayed degradation
+        - Red herrings: always show their incident values (static noise)
+        """
+        cascade_order = self._compute_cascade_order()
+        metrics = {}
+
+        for svc in self.services:
+            name = svc["name"]
+            onset = cascade_order.get(name)
+
+            if onset is not None:
+                # Service is in the cascade chain — progressive degradation
+                factor = self._cascade_factor(step, onset, max_steps)
+            else:
+                # Not in cascade (red herring / orphan)
+                # Show incident values (they have independent issues)
+                factor = 1.0
+
+            # CPU interpolation
+            normal_cpu   = svc.get("normal_cpu", 0.3)
+            incident_cpu = svc.get("incident_cpu", normal_cpu)
+            cpu = self._interpolate(normal_cpu, incident_cpu, factor)
+
+            # Memory interpolation
+            normal_mem   = svc.get("normal_mem", 0.4)
+            incident_mem = svc.get("incident_mem", normal_mem)
+            mem = self._interpolate(normal_mem, incident_mem, factor)
+
+            # HTTP response time
+            normal_rt   = svc.get("normal_http_rt")
+            incident_rt = svc.get("incident_http_rt")
+            http_rt = self._interpolate(normal_rt, incident_rt, factor) \
+                if normal_rt is not None and incident_rt is not None else None
+
+            # Consumer RPC response time
+            normal_crpc   = svc.get("normal_consumer_rpc_rt")
+            incident_crpc = svc.get("incident_consumer_rpc_rt")
+            consumer_rpc_rt = self._interpolate(normal_crpc, incident_crpc, factor) \
+                if normal_crpc is not None and incident_crpc is not None else None
+
+            # Provider RPC response time
+            normal_prpc   = svc.get("normal_provider_rpc_rt")
+            incident_prpc = svc.get("incident_provider_rpc_rt")
+            provider_rpc_rt = self._interpolate(normal_prpc, incident_prpc, factor) \
+                if normal_prpc is not None and incident_prpc is not None else None
+
+            # Health / status
+            is_healthy = factor < 0.75  # Unhealthy at 75%+ degradation
+            restart_count = svc.get("restart_count", 0) if factor >= 0.9 else 0
+            status = self._status_from_factor(factor)
+
+            # Error rate: proportional to degradation, with some randomness
+            error_rate = round(factor * 0.7, 4) if onset is not None and factor > 0 else 0.0
+
+            metrics[name] = {
+                "cpu_utilization":    cpu,
+                "memory_utilization": mem,
+                "http_rt":            http_rt,
+                "consumer_rpc_rt":    consumer_rpc_rt,
+                "provider_rpc_rt":    provider_rpc_rt,
+                "is_healthy":         is_healthy,
+                "restart_count":      restart_count,
+                "status":             status,
+                "error_rate":         error_rate,
+            }
+
+        return metrics
+
+    def get_alerts_at_step(self, step: int, max_steps: int) -> List[Dict[str, Any]]:
+        """
+        Progressive alerts: alerts fire as the cascade reaches each service.
+
+        - Root cause alerts: visible from step 0
+        - Cascade alerts: visible from their service's onset step
+        - Red herring alerts: always visible (they're independent noise)
+        - Internal flags (is_red_herring) are stripped from output
+        """
+        cascade_order = self._compute_cascade_order()
+        visible = []
+
+        for alert in self.alerts:
+            service = alert.get("service", "")
+            is_rh = alert.get("is_red_herring", False)
+            fired_at = alert.get("fired_at_step", 0)
+
+            # Red herring alerts: always visible
+            if is_rh:
+                visible.append(
+                    {k: v for k, v in alert.items() if k != "is_red_herring"}
+                )
+                continue
+
+            # Alerts that fired at step 0: always visible (pre-existing)
+            if fired_at == 0 and step >= 0:
+                visible.append(
+                    {k: v for k, v in alert.items() if k != "is_red_herring"}
+                )
+                continue
+
+            # Cascade alerts: visible from their service's onset step
+            onset = cascade_order.get(service)
+            if onset is not None and step >= onset:
+                visible.append(
+                    {k: v for k, v in alert.items() if k != "is_red_herring"}
+                )
+            elif onset is None:
+                # Orphan service not in topology — show immediately
+                visible.append(
+                    {k: v for k, v in alert.items() if k != "is_red_herring"}
+                )
+
+        return visible
+
+    def get_topology_at_step(self, step: int, max_steps: int) -> List[Dict[str, Any]]:
+        """
+        Progressive topology: edge latencies increase as the cascade
+        reaches each downstream service.
+
+        Structure (edges, services) stays constant — only latencies evolve.
+        """
+        cascade_order = self._compute_cascade_order()
+        result = []
+
+        for edge in self.topology:
+            downstream = edge["downstream"]
+            onset = cascade_order.get(downstream, 0)
+            factor = self._cascade_factor(step, onset, max_steps)
+
+            avg_lat = edge["avg_rt_ms"]
+
+            # Find incident latency from the downstream service
+            incident_lat = avg_lat
+            for svc in self.services:
+                if svc["name"] == downstream:
+                    if svc.get("incident_provider_rpc_rt") is not None:
+                        incident_lat = svc["incident_provider_rpc_rt"]
+                    elif svc.get("incident_consumer_rpc_rt") is not None:
+                        incident_lat = svc["incident_consumer_rpc_rt"]
+                    elif svc.get("incident_http_rt") is not None:
+                        incident_lat = svc["incident_http_rt"]
+                    break
+
+            current_lat = self._interpolate(avg_lat, incident_lat, factor)
+
+            result.append({
+                "upstream_service":   edge["upstream"],
+                "downstream_service": edge["downstream"],
+                "rpc_type":           edge["rpc_type"],
+                "avg_latency_ms":     avg_lat,
+                "current_latency_ms": round(current_lat, 2),
+            })
+
+        return result
+
+    def get_timeline_at_step(self, step: int, max_steps: int) -> List[Dict[str, Any]]:
+        """
+        Progressive timeline: events accumulate as the cascade deepens.
+
+        Static events (from scenario.json) are shown when step >= event.step.
+        Dynamic events are generated as the cascade reaches new services:
+          - "cascade_detected" when a new service starts degrading
+          - "escalation_warning" at the episode midpoint
+        """
+        cascade_order = self._compute_cascade_order()
+
+        # 1. Static events that have fired by this step
+        events = [
+            e for e in self.timeline
+            if e.get("step", 0) <= step
+        ]
+
+        # 2. Dynamic cascade-reach events
+        # Track which services already have cascade events in static timeline
+        existing_cascade_services = {
+            e["service"] for e in self.timeline
+            if e.get("event_type") in ("cascade", "cascade_detected")
+        }
+
+        for svc_name, onset in cascade_order.items():
+            if (onset > 0
+                    and onset <= step
+                    and svc_name not in existing_cascade_services):
+                events.append({
+                    "step":        onset,
+                    "event_type":  "cascade_detected",
+                    "service":     svc_name,
+                    "description": (
+                        f"Upstream failure cascading to {svc_name}. "
+                        f"Performance degradation detected."
+                    ),
+                })
+
+        # 3. Midpoint escalation warning (if not already in static timeline)
+        midpoint = max_steps // 2
+        has_mid_event = any(
+            e.get("event_type") == "escalation_warning" for e in self.timeline
+        )
+        if step >= midpoint and not has_mid_event:
+            events.append({
+                "step":        midpoint,
+                "event_type":  "escalation_warning",
+                "service":     "incident-commander",
+                "description": (
+                    f"Incident unresolved for {midpoint} steps. "
+                    f"Consider escalating to senior SRE."
+                ),
+            })
+
+        # Sort chronologically by step
+        events.sort(key=lambda e: e.get("step", 0))
+        return events
+
     @abstractmethod
     def validate(self) -> bool:
         """Validate scenario data integrity."""

@@ -65,6 +65,8 @@ app.add_middleware(
 # ── Request / Response models ─────────────────────────────────────────────────
 class ResetRequest(BaseModel):
     task_id: Optional[str] = "easy"
+    dynamic: Optional[bool] = True
+    seed: Optional[int] = None
 
 
 class StepRequest(BaseModel):
@@ -92,7 +94,11 @@ async def reset(request: ResetRequest = ResetRequest()):
     Required by OpenEnv spec + validator (must return HTTP 200).
     """
     try:
-        result = handle_reset(_http_env, {"task_id": request.task_id})
+        result = handle_reset(_http_env, {
+            "task_id": request.task_id,
+            "dynamic": request.dynamic,
+            "seed":    request.seed,
+        })
         return JSONResponse(status_code=200, content=result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

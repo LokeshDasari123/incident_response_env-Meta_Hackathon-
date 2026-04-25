@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 def handle_reset(env: IncidentResponseEnv, payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST /reset → call env.reset(), return observation as dict."""
     task_id = payload.get("task_id", "easy")
-    obs     = env.reset(task_id=task_id)
+    dynamic = payload.get("dynamic", True)
+    seed    = payload.get("seed", None)
+    obs     = env.reset(task_id=task_id, dynamic=dynamic, seed=seed)
     return {
         "observation": obs.model_dump(),
         "reward":      0.0,
         "done":        False,
-        "info":        {"task_id": task_id},
+        "info":        {"task_id": task_id, "dynamic": dynamic},
     }
 
 
