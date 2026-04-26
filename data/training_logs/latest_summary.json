@@ -1,23 +1,77 @@
 {
-  "episode": 1,
-  "total": 100,
-  "progress_pct": 1.0,
-  "elapsed_s": 6.8,
+  "episode": 49,
+  "total": 50,
+  "progress_pct": 98.0,
+  "elapsed_s": 2963.8,
+  "mode": "hybrid",
+  "ltm_stats": {
+    "total_episodes_in_ltm": 281,
+    "fault_patterns_learned": 13,
+    "remediation_patterns": 8,
+    "red_herrings_identified": 5,
+    "routing_decisions_in_ltm": 213
+  },
+  "routing_stats": {
+    "fast": {
+      "count": 36,
+      "pct": 5.9,
+      "avg_reward": 0.8697,
+      "accuracy": 100.0,
+      "avg_complexity": 0.262
+    },
+    "balanced": {
+      "count": 575,
+      "pct": 94.1,
+      "avg_reward": 0.6283,
+      "accuracy": 42.3,
+      "avg_complexity": 0.445
+    }
+  },
   "per_task": {
     "easy": {
       "rewards": [
-        0.3651,
-        0.45
+        0.9159,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9159,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397,
+        0.9397
       ],
       "rc_scores": [
-        0.0,
-        0.0
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
       ],
-      "avg_last10": 0.4075,
-      "avg_last50": 0.4075,
-      "best": 0.45,
-      "count": 2,
-      "trend": "insufficient_data"
+      "avg_last10": 0.9373,
+      "avg_last50": 0.9369,
+      "best": 0.9397,
+      "count": 17,
+      "trend": "stable"
     },
     "expert": {
       "rewards": [],
@@ -29,42 +83,94 @@
       "trend": "insufficient_data"
     },
     "hard": {
-      "rewards": [],
-      "rc_scores": [],
-      "avg_last10": 0.0,
-      "avg_last50": 0.0,
-      "best": 0,
-      "count": 0,
-      "trend": "insufficient_data"
+      "rewards": [
+        0.85,
+        0.75,
+        0.7275,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.85,
+        0.8075,
+        0.5075,
+        0.7525
+      ],
+      "rc_scores": [
+        0.2725,
+        0.725,
+        0.5675,
+        0.6325,
+        0.5475,
+        0.3825,
+        0.545,
+        0.5375,
+        0.63,
+        0.635,
+        0.82,
+        0.725,
+        0.7275,
+        0.42,
+        0.05,
+        0.3175
+      ],
+      "avg_last10": 0.8017,
+      "avg_last50": 0.8059,
+      "best": 0.85,
+      "count": 16,
+      "trend": "declining"
     },
     "medium": {
-      "rewards": [],
-      "rc_scores": [],
-      "avg_last10": 0.0,
-      "avg_last50": 0.0,
-      "best": 0,
-      "count": 0,
-      "trend": "insufficient_data"
+      "rewards": [
+        0.77,
+        0.6,
+        0.71,
+        0.81,
+        0.87,
+        0.6,
+        0.72,
+        0.71,
+        0.72,
+        0.845,
+        0.81,
+        0.87,
+        0.77,
+        0.87,
+        0.81,
+        0.87,
+        0.81
+      ],
+      "rc_scores": [
+        0.72,
+        0.3,
+        0.3933,
+        0.3933,
+        0.8133,
+        0.3,
+        0.3467,
+        0.58,
+        0.3467,
+        0.6267,
+        0.5333,
+        0.6267,
+        0.72,
+        0.7667,
+        0.58,
+        0.3933,
+        0.5333
+      ],
+      "avg_last10": 0.8085,
+      "avg_last50": 0.7744,
+      "best": 0.87,
+      "count": 17,
+      "trend": "improving"
     }
   },
-  "challenger_wins_total": 14,
-  "inference": {
-    "mode": "llm_first",
-    "llm_min_reward": 0.35,
-    "cumulative": {
-      "llm_picks": 0,
-      "rule_fallbacks": 40,
-      "episodes_effective_llm": 2
-    },
-    "last_episode": {
-      "requested": "llm_first",
-      "effective": "llm_first",
-      "llm_picks": 0,
-      "rule_fallbacks": 20,
-      "rescue_adjustment": 0.15,
-      "llm_min_reward": 0.35
-    }
-  },
-  "updated_at": "2026-04-26T04:53:44.037288",
-  "running": true
+  "updated_at": "2026-04-26T09:34:09.881033",
+  "running": false
 }

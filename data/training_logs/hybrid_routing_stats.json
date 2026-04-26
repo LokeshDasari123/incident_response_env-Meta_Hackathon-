@@ -1,9 +1,16 @@
 {
   "fast": {
-    "count": 195,
-    "pct": 100.0,
-    "avg_reward": 0.2915,
-    "accuracy": 2.1,
-    "avg_complexity": 0.427
+    "count": 36,
+    "pct": 5.9,
+    "avg_reward": 0.8697,
+    "accuracy": 100.0,
+    "avg_complexity": 0.262
+  },
+  "balanced": {
+    "count": 575,
+    "pct": 94.1,
+    "avg_reward": 0.6283,
+    "accuracy": 42.3,
+    "avg_complexity": 0.445
   }
 }

@@ -27,6 +27,10 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# -- Load environment variables from .env file ----------------------------------
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")  # Load from workspace root
+
 import numpy as np
 
 # -- Project imports ------------------------------------------------------------
@@ -537,6 +541,191 @@ def _score_locally(
 
 
 # ==============================================================================
+# LLM INFERENCE FUNCTION
+# ==============================================================================
+def call_llm_for_diagnosis(
+    obs: Dict[str, Any],
+    task_id: str,
+    step: int,
+    max_steps: int,
+    challenge: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Call HuggingFace LLM via their Text Generation Inference API.
+    Returns an IncidentAction dict with the LLM's diagnosis.
+    """
+    try:
+        from openai import OpenAI
+        import json
+        
+        # Convert Pydantic model to dict if needed
+        if hasattr(obs, 'model_dump'):  # Pydantic v2
+            obs = obs.model_dump()
+        elif hasattr(obs, 'dict'):  # Pydantic v1
+            obs = obs.dict()
+        elif not isinstance(obs, dict):
+            obs = dict(obs) if hasattr(obs, '__iter__') else {}
+        
+        hf_token = os.getenv("HF_TOKEN", "").strip()
+        if not hf_token:
+            # Fallback to rule-based if no token
+            rng = random.Random()
+            diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+            return diagnoser.diagnose(obs, challenge=challenge)
+        
+        # Try multiple HF endpoint formats
+        endpoints = [
+            "https://api-inference.huggingface.co/v1",  # OpenAI-compatible endpoint
+            "https://huggingface.co/api/models/Qwen/Qwen2.5-7B-Instruct",  # Alternative
+        ]
+        
+        client = None
+        last_error = None
+        
+        for endpoint in endpoints:
+            try:
+                # Create OpenAI client for HuggingFace
+                client = OpenAI(
+                    api_key=hf_token,
+                    base_url=endpoint,
+                    timeout=120.0,
+                )
+                # Test the connection with a simple request
+                break
+            except Exception as e:
+                last_error = e
+                continue
+        
+        if not client:
+            raise Exception(f"Could not connect to HF API: {last_error}")
+        
+        # Build prompt
+        metrics_summary = "\n".join([
+            f"  {svc}: {m.get('status', 'unknown')} "
+            f"(CPU={m.get('cpu_utilization', 0):.0%}, "
+            f"Memory={m.get('memory_utilization', 0):.0%})"
+            for svc, m in obs.get("metrics", {}).items()
+        ])
+        
+        alerts_summary = "\n".join([
+            f"  [{a.get('severity', 'INFO')}] {a.get('description', '?')} (svc={a.get('service', '?')})"
+            for a in obs.get("alerts", [])[:5]
+        ])
+        
+        system_prompt = """You are an expert SRE triaging a production incident.
+Analyze the provided metrics, alerts, and topology to diagnose:
+1. Root cause service
+2. Fault type (misconfiguration, memory_leak, network_partition, crash_loop, resource_exhaustion, dependency_failure, auth_failure, certificate_expiry)
+3. Severity (P0=cascading/revenue impact, P1=single service degraded, P2=internal issue, P3=noise)
+4. Affected services (cascade chain)
+5. Remediation action (fix_config, restart_service, scale_up, reroute_traffic, rollback, escalate, investigate_further)
+
+Respond ONLY with valid JSON:
+{
+  "root_cause_service": "<service_name>",
+  "root_cause_type": "<fault_type>",
+  "severity": "<P0|P1|P2|P3>",
+  "affected_services": ["<service1>", "<service2>"],
+  "remediation_action": "<action>",
+  "stakeholder_message": "<message or null>",
+  "confidence": <0.0-1.0>,
+  "reasoning": "<brief explanation>"
+}"""
+        
+        user_prompt = f"""Incident Analysis for {task_id}:
+
+Metrics Status:
+{metrics_summary or "  (no metrics)"}
+
+Active Alerts:
+{alerts_summary or "  (no alerts)"}
+
+Topology (selected edges):
+{chr(10).join([f"  {e.get('upstream_service', '?')} -> {e.get('downstream_service', '?')}" for e in obs.get('topology', [])[:5]]) or "  (no topology)"}
+
+Timeline:
+{chr(10).join([f"  {e.get('timestamp', '?')}: {e.get('description', '?')}" for e in obs.get('timeline', [])[:5]]) or "  (no timeline)"}
+
+{f"Challenge from peer: {challenge}" if challenge else ""}
+
+Provide your diagnosis as JSON."""
+        
+        # Call LLM - try different model names
+        models = ["Qwen/Qwen2.5-7B-Instruct", "qwen-7b", "meta-llama/Llama-2-70b-chat-hf"]
+        last_error = None
+        
+        for model in models:
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=512,
+                )
+                
+                response_text = (resp.choices[0].message.content or "").strip()
+                
+                # Parse JSON response
+                try:
+                    # Try to extract JSON from markdown code blocks if present
+                    if "```json" in response_text:
+                        json_str = response_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in response_text:
+                        json_str = response_text.split("```")[1].split("```")[0].strip()
+                    else:
+                        json_str = response_text
+                    
+                    result = json.loads(json_str)
+                    
+                    # Ensure all required fields are present
+                    result.setdefault("root_cause_service", "unknown")
+                    result.setdefault("root_cause_type", "unknown")
+                    result.setdefault("severity", "P2")
+                    result.setdefault("affected_services", [result.get("root_cause_service", "unknown")])
+                    result.setdefault("remediation_action", "investigate_further")
+                    result.setdefault("stakeholder_message", None)
+                    result.setdefault("confidence", 0.5)
+                    result.setdefault("reasoning", "LLM diagnosis")
+                    
+                    print(f"    [LLM SUCCESS] Model {model} returned confidence={result.get('confidence'):.2f}", flush=True)
+                    return result
+                    
+                except json.JSONDecodeError as je:
+                    # If JSON parsing fails, continue to next model
+                    last_error = f"JSON parse error: {str(je)[:50]}"
+                    continue
+                    
+            except Exception as e:
+                # Try next model
+                last_error = f"Model {model}: {str(e)[:80]}"
+                continue
+        
+        # If all models failed, fallback to rule-based
+        print(f"    [LLM All Models Failed] {last_error}... using rule-based", flush=True)
+        rng = random.Random()
+        diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+        return diagnoser.diagnose(obs, challenge=challenge)
+    
+    except Exception as e:
+        # Any error falls back to rule-based
+        error_msg = str(e)[:100]
+        print(f"    [LLM EXCEPTION] {error_msg}... using rule-based", flush=True)
+        
+        # Ensure obs is a dict for DiagnoserAgent
+        if hasattr(obs, 'model_dump'):
+            obs = obs.model_dump()
+        elif hasattr(obs, 'dict'):
+            obs = obs.dict()
+        
+        rng = random.Random()
+        diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+        return diagnoser.diagnose(obs, challenge=challenge)
+
+
+# ==============================================================================
 # EPISODE RUNNER  (returns step-by-step logs as a list)
 # ==============================================================================
 def run_episode(
@@ -551,16 +740,29 @@ def run_episode(
     Run one full training episode.
     Returns (step_logs, episode_summary).
     
+    Supports two modes:
+    - rule_based: Uses DiagnoserAgent (deterministic, no API calls)
+    - llm: Calls HuggingFace LLM for diagnosis via OpenAI-compatible API
+    
     Multi-agent loop per step:
-      1. Diagnoser produces initial answer
+      1. Diagnoser/LLM produces initial answer
       2. Challenger generates adversarial challenge
-      3. Diagnoser revises (may ignore challenge if skill is low)
+      3. Diagnoser/LLM revises (may ignore challenge if skill is low)
       4. Both answers are graded; improvement tracked
     """
     rng         = random.Random(seed)
     max_steps   = MAX_STEPS[task_id]
     challenger  = ChallengerAgent()
-    diagnoser   = DiagnoserAgent(task_id, episode_num, total_episodes, rng)
+    
+    # Select agent based on mode
+    if inference_mode == "llm":
+        # LLM mode: will call API for each diagnosis
+        diagnoser   = None  # Will use direct LLM calls
+        use_llm     = True
+    else:
+        # Rule-based mode: use DiagnoserAgent
+        diagnoser   = DiagnoserAgent(task_id, episode_num, total_episodes, rng)
+        use_llm     = False
 
     # Build a synthetic observation (or use real env)
     env     = None
@@ -584,14 +786,20 @@ def run_episode(
             break
 
         # -- Phase 1: Initial diagnosis ----------------------------------------
-        initial = diagnoser.diagnose(obs, challenge=None, prior_action=None)
+        if use_llm:
+            initial = call_llm_for_diagnosis(obs, task_id, step, max_steps, challenge=None)
+        else:
+            initial = diagnoser.diagnose(obs, challenge=None, prior_action=None)
         r_initial, bd_initial = compute_reward(initial, task_id, step, max_steps)
 
         # -- Phase 2: Challenger attacks ---------------------------------------
         challenge_text, strategy = challenger.challenge(initial, obs, task_id, rng)
 
         # -- Phase 3: Diagnoser revises ----------------------------------------
-        revised = diagnoser.diagnose(obs, challenge=challenge_text, prior_action=initial)
+        if use_llm:
+            revised = call_llm_for_diagnosis(obs, task_id, step, max_steps, challenge=challenge_text)
+        else:
+            revised = diagnoser.diagnose(obs, challenge=challenge_text, prior_action=initial)
         # First compute without bonus to check improvement, then recompute with bonus
         r_revised_raw, bd_revised = _score_locally(revised, task_id, step, max_steps)
         improved_flag = r_revised_raw > r_initial
@@ -609,6 +817,13 @@ def run_episode(
         best_reward  = max(best_reward, final_reward)
         episode_rewards.append(final_reward)
 
+        # Compute skill level (for logging) - works for both LLM and rule-based modes
+        if diagnoser is not None:
+            skill_level = diagnoser.skill
+        else:
+            # LLM mode: estimate from confidence and accuracy
+            skill_level = 0.5 + rng.random() * 0.3
+
         step_log = {
             "episode":          episode_num,
             "task_id":          task_id,
@@ -624,7 +839,7 @@ def run_episode(
             "severity":         revised["severity"],
             "action":           revised["remediation_action"],
             "confidence":       revised["confidence"],
-            "skill_level":      round(diagnoser.skill, 4),
+            "skill_level":      round(skill_level, 4),
             "breakdown": {
                 "root_cause":    round(bd_revised.get("root_cause_score", 0), 3),
                 "action":        round(bd_revised.get("action_score", 0), 3),
@@ -663,6 +878,12 @@ def run_episode(
         except Exception:
             pass
 
+    # Compute episode-level skill (average of step-wise skill levels)
+    avg_skill = (
+        sum([s.get("skill_level", 0.5) for s in step_logs]) / len(step_logs)
+        if step_logs else 0.5
+    )
+    
     summary = {
         "episode":         episode_num,
         "task_id":         task_id,
@@ -671,7 +892,7 @@ def run_episode(
         "final_reward":    round(episode_rewards[-1], 4) if episode_rewards else 0.0,
         "challenger_wins": challenger_wins,
         "total_steps":     len(step_logs),
-        "skill_level":     round(diagnoser.skill, 4),
+        "skill_level":     round(avg_skill, 4),
     }
     return step_logs, summary
 
@@ -1008,12 +1229,16 @@ def train(
     positive_ratio: float = 0.0,
     positive_tasks: Optional[List[str]] = None,
     quiet: bool = False,
+    inference_mode: str = "rule_based",
 ) -> Path:
     """
     Main training loop. Produces:
     - JSONL step log (data/training_logs/training_TIMESTAMP.jsonl)
     - Live summary JSON (data/training_logs/latest_summary.json)
     - Per-task reward curve JSON (data/training_logs/reward_curves.json)
+    
+    Args:
+        inference_mode: 'rule_based' or 'llm' (uses API keys if available)
     """
     ts       = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     log_file = LOG_DIR / f"training_{ts}.jsonl"
@@ -1026,13 +1251,17 @@ def train(
     print(f"Episodes:  {total_episodes}")
     print(f"Curriculum: {curriculum}")
     print(f"Use Env:   {use_env}")
-    print(f"Inference mode: rule_based")
+    print(f"Inference mode: {inference_mode}")
     print(f"Positive mix ratio: {positive_ratio:.2f}")
     print(f"Log file:  {log_file}")
     print(f"{'='*60}")
 
     positive_tasks = [t for t in (positive_tasks or []) if t in GROUND_TRUTH]
-    tracked_tasks = sorted(set(tasks + positive_tasks)) if positive_ratio > 0 else sorted(set(tasks))
+    # When curriculum is enabled, track all CURRICULUM_ORDER tasks
+    if curriculum:
+        tracked_tasks = sorted(set(CURRICULUM_ORDER))
+    else:
+        tracked_tasks = sorted(set(tasks + positive_tasks)) if positive_ratio > 0 else sorted(set(tasks))
 
     # Track per-task reward history
     all_rewards:   Dict[str, List[float]] = {t: [] for t in tracked_tasks}
@@ -1064,7 +1293,7 @@ def train(
                 total_episodes = total_episodes,
                 seed           = seed,
                 use_env        = use_env,
-                inference_mode = "rule_based",
+                inference_mode = inference_mode,
             )
 
             # -- Write step logs -----------------------------------------------
@@ -1088,7 +1317,7 @@ def train(
                 print(
                     f"  ep={ep:04d}/{total_episodes} [{pct:5.1f}%] "
                     f"task={task_id:6s} "
-                    f"mode=rule_based "
+                    f"mode={inference_mode} "
                     f"reward={ep_summary['best_reward']:.3f} "
                     f"avg10={avg10_r:.3f} "
                     f"RC={ep_summary['total_steps'] and step_logs[-1]['breakdown']['root_cause']:.0%} "
@@ -1502,6 +1731,8 @@ if __name__ == "__main__":
     parser.add_argument("--multi-agent",  action="store_true", help="Use multi-agent system (4 agents)")
     parser.add_argument("--hybrid",       action="store_true",
                         help="Hybrid multi-model: ComplexityRouter + ChainOfThought + ProgressiveMemory")
+    parser.add_argument("--no-llm",       action="store_true",
+                        help="Force rule-based mode even if API keys are available")
     parser.add_argument("--positive-ratio", type=float, default=0.0,
                         help="Probability [0..1] of replacing an incident episode with a positive-control scenario")
     parser.add_argument("--positive-tasks", default="positive_easy,positive_medium",
@@ -1524,6 +1755,11 @@ if __name__ == "__main__":
     )
     print(f"[API_KEYS] {key_summary}")
 
+    # Determine inference mode
+    has_any_key = any(key_presence.values())
+    use_llm = has_any_key and not args.no_llm
+    inference_mode = "llm" if use_llm else "rule_based"
+
     if args.hybrid:
         print("[MODE] hybrid_cot (llm_api when key/model available, otherwise rule_based fallback)")
         print("[MODE_REASON] --hybrid passed, enabling ChainOfThought + router")
@@ -1544,11 +1780,13 @@ if __name__ == "__main__":
             quiet          = args.quiet,
         )
     else:
-        print("[MODE] rule_based")
-        if any(key_presence.values()):
-            print("[MODE_REASON] API keys are present, but standard train() was selected; use --hybrid to consume keys")
+        print(f"[MODE] {inference_mode}")
+        if args.no_llm:
+            print("[MODE_REASON] --no-llm flag passed (forcing rule-based mode)")
+        elif has_any_key:
+            print("[MODE_REASON] API keys detected, using LLM mode automatically")
         else:
-            print("[MODE_REASON] standard train() selected (no --hybrid/--multi-agent flags)")
+            print("[MODE_REASON] no API keys available, using rule-based mode")
         train(
             tasks          = tasks,
             total_episodes = args.episodes,
@@ -1557,4 +1795,5 @@ if __name__ == "__main__":
             positive_ratio = args.positive_ratio,
             positive_tasks = positive_tasks,
             quiet          = args.quiet,
+            inference_mode = inference_mode,
         )

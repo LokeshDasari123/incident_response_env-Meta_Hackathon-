@@ -18,6 +18,10 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# -- Load environment variables from .env file ----------------------------------
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")
+
 from training.llm_env_wrapper import LLMEnvWrapper
 from training.curriculum      import CurriculumController
 

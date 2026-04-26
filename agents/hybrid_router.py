@@ -23,17 +23,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Model tier configuration (from .env) ──────────────────────────────────────
-FAST_BASE_URL     = os.getenv("GROQ_BASE_URL",   "https://api.groq.com/openai/v1")
-FAST_MODEL        = os.getenv("GROQ_MODEL",      "llama-3.3-70b-versatile")
-FAST_API_KEY      = os.getenv("GROQ_API_KEY",    "")
+# All tiers use HuggingFace models via OpenAI-compatible interface
+# Using HF's OpenAI-compatible inference endpoints
+HF_API_KEY = os.getenv("HF_TOKEN", "")
 
-BALANCED_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-BALANCED_MODEL    = os.getenv("GEMINI_MODEL",    "gemini-2.0-flash")
-BALANCED_API_KEY  = os.getenv("GEMINI_API_KEY",  "")
+# FAST: Small model for parsing/SCAN (1B)
+FAST_BASE_URL     = "https://api-inference.huggingface.co/v1"
+FAST_MODEL        = os.getenv("HF_MODEL_FAST",     "meta-llama/Llama-3.2-1B-Instruct")
+FAST_API_KEY      = HF_API_KEY
 
-STRONG_BASE_URL   = os.getenv("API_BASE_URL",    "https://router.huggingface.co/v1")
-STRONG_MODEL      = os.getenv("MODEL_NAME",      "meta-llama/Llama-3.3-70B-Instruct")
-STRONG_API_KEY    = os.getenv("HF_TOKEN",        "") or os.getenv("API_KEY", "")
+# BALANCED: Medium model for orchestrator/DECIDE/COMMUNICATE (7B)
+BALANCED_BASE_URL = "https://api-inference.huggingface.co/v1"
+BALANCED_MODEL    = os.getenv("HF_MODEL_BALANCED", "Qwen/Qwen2.5-7B-Instruct")
+BALANCED_API_KEY  = HF_API_KEY
+
+# STRONG: Large model for analysis/ANALYZE (70B)
+STRONG_BASE_URL   = "https://api-inference.huggingface.co/v1"
+STRONG_MODEL      = os.getenv("HF_MODEL_STRONG",   "meta-llama/Llama-3.3-70B-Instruct")
+STRONG_API_KEY    = HF_API_KEY
 
 # Thresholds
 FAST_THRESHOLD    = 0.35

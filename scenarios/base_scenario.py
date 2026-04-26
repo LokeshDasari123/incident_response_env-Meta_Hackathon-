@@ -358,12 +358,8 @@ class BaseScenario(ABC):
                 )
                 continue
 
-            # Alerts that fired at step 0: always visible (pre-existing)
-            if fired_at == 0 and step >= 0:
-                visible.append(
-                    {k: v for k, v in alert.items() if k != "is_red_herring"}
-                )
-                continue
+            # Alerts that fired at step 0: only visible if their onset step has been reached
+            # (Cascade alerts are handled below)
 
             # Cascade alerts: visible from their service's onset step
             onset = cascade_order.get(service)

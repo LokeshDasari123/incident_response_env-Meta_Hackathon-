@@ -174,14 +174,9 @@ class ChainOfThought:
         rc_type       = analyze_result.get("root_cause_type", "unknown")
         confidence    = float(analyze_result.get("confidence", 0.5))
 
-        # Guardrail: if analyze falls back to unknown repeatedly, keep momentum
-        # by inheriting the scan top candidate and assigning calibrated low-mid confidence.
-        if (not rc_service or rc_service == "unknown") and top_candidate and top_candidate != "unknown":
-            rc_service = top_candidate
-            confidence = max(confidence, min(0.65, 0.35 + complexity * 0.35))
-
-        if rc_service and rc_service != "unknown":
-            confidence = max(confidence, 0.35)
+        # LLM-ONLY MODE: Trust the LLM's confidence value completely
+        # (no post-processing clamping)
+        # If LLM says 0.95, we use 0.95. If it says 0.2, we use 0.2.
 
         print(f"  {prefix}[CoT][ANALYZE] rc={rc_service} type={rc_type} conf={confidence:.0%}", flush=True)
 
@@ -263,22 +258,8 @@ class ChainOfThought:
         memory_context: str,
         scan_result: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """PHASE 2: Balanced model analyzes root cause."""
-        # For low complexity, skip the API call and use rule-based
-        if complexity < 0.25:
-            metrics = obs.get("metrics", {})
-            # Simple rule: pick the service with highest CPU or memory
-            ranked = self._rank_suspicious_services(metrics)
-            worst_service = ranked[0] if ranked else "unknown"
-            worst_metrics = metrics.get(worst_service, {}) if worst_service != "unknown" else {}
-            inferred_type = self._infer_fault_type(worst_metrics)
-            conf = 0.35 if worst_service == "unknown" else 0.45
-            return {
-                "root_cause_service": worst_service,
-                "root_cause_type":    inferred_type,
-                "confidence":         conf,
-                "reasoning":          "Low complexity — rule-based analysis.",
-            }
+        """PHASE 2: Balanced model analyzes root cause. ALWAYS uses LLM (no rule-based bypass)."""
+        # LLM-ONLY MODE: Always call the LLM, no rule-based shortcuts
 
         top = scan_result.get("top_candidate", "unknown")
         top_m = obs.get("metrics", {}).get(top, {}) if top and top != "unknown" else {}
@@ -438,48 +419,74 @@ class ChainOfThought:
                 })
                 return fallback
 
-        # Make the API call
-        try:
-            from openai import OpenAI
-            client = OpenAI(base_url=base_url, api_key=api_key)
-            resp = client.chat.completions.create(
-                model       = model,
-                messages    = [
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": user},
-                ],
-                temperature = 0.15,
-                max_tokens  = max_tokens,
-                stream      = False,
-            )
-            raw_text    = (resp.choices[0].message.content or "").strip()
-            tokens_used = getattr(resp.usage, "total_tokens", 0)
-            result      = self._parse_json(raw_text, fallback)
+        # Make the API call with retry logic (NO FALLBACK - LLM ONLY MODE)
+        from huggingface_hub import InferenceClient
+        import random
+        
+        max_retries = 5
+        base_wait = 2.0  # start at 2 seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Use HuggingFace InferenceClient instead of OpenAI client to avoid 404s
+                client = InferenceClient(model=model, token=api_key)
+                
+                print(f"  [CoT][{phase_name.upper()}] LLM call (attempt {attempt+1}/{max_retries})...", flush=True)
+                
+                resp = client.chat_completion(
+                    messages    = [
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": user},
+                    ],
+                    temperature = 0.15,
+                    max_tokens  = max_tokens,
+                )
+                raw_text    = (resp.choices[0].message.content or "").strip()
+                tokens_used = getattr(resp.usage, "total_tokens", 0) if hasattr(resp, "usage") else 0
+                result      = self._parse_json(raw_text, fallback)
 
-            elapsed = time.time() - t0
-            self._phase_log.append({
-                "phase":      phase_name,
-                "tier":       tier,
-                "model":      model,
-                "latency_ms": round(elapsed * 1000, 1),
-                "tokens":     tokens_used,
-                "fallback":   False,
-                "complexity": round(complexity, 3),
-            })
-            return result
+                elapsed = time.time() - t0
+                self._phase_log.append({
+                    "phase":      phase_name,
+                    "tier":       tier,
+                    "model":      model,
+                    "latency_ms": round(elapsed * 1000, 1),
+                    "tokens":     tokens_used,
+                    "fallback":   False,
+                    "complexity": round(complexity, 3),
+                    "attempts":   attempt + 1,
+                })
+                print(f"  [CoT][{phase_name.upper()}] ✓ LLM success in {elapsed:.1f}s", flush=True)
+                return result
 
-        except Exception as exc:
-            elapsed = time.time() - t0
-            self._phase_log.append({
-                "phase":      phase_name,
-                "tier":       tier,
-                "model":      model,
-                "latency_ms": round(elapsed * 1000, 1),
-                "tokens":     0,
-                "fallback":   True,
-                "error":      str(exc)[:80],
-            })
-            return fallback
+            except Exception as exc:
+                exc_str = str(exc)
+                is_retriable = ("timeout" in exc_str.lower() or 
+                               "ssl" in exc_str.lower() or
+                               "connection" in exc_str.lower() or
+                               "429" in exc_str)  # rate limit is retriable
+                
+                if attempt < max_retries - 1 and is_retriable:
+                    # Calculate exponential backoff with jitter
+                    wait_time = base_wait * (2 ** attempt) + random.uniform(0, 1)
+                    print(f"  [CoT][{phase_name.upper()}] Retriable error: {str(exc)[:60]}... Retry in {wait_time:.1f}s", flush=True)
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Final attempt or non-retriable error - raise and fail hard
+                    elapsed = time.time() - t0
+                    self._phase_log.append({
+                        "phase":      phase_name,
+                        "tier":       tier,
+                        "model":      model,
+                        "latency_ms": round(elapsed * 1000, 1),
+                        "tokens":     0,
+                        "fallback":   False,
+                        "error":      str(exc)[:100],
+                        "attempts":   attempt + 1,
+                    })
+                    print(f"  [CoT][{phase_name.upper()}] ✗ LLM FAILED after {attempt+1} attempts: {str(exc)[:80]}", flush=True)
+                    raise  # Re-raise the exception - no fallback
 
     @staticmethod
     def _parse_json(text: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
