@@ -1,0 +1,109 @@
+{
+  "scenario_id": "positive_easy_001",
+  "name": "Positive Control - Scheduled Maintenance with Healthy KPIs",
+  "difficulty": "positive_easy",
+  "fault_type": "healthy_control",
+  "positive_control": true,
+  "description": "A planned maintenance window triggers expected warning alerts in monitoring-agent and worker-node-4, but user-facing services remain healthy. The agent should avoid false P0 escalation and communicate monitored stability.",
+  "max_steps": 8,
+  "sla_breach_step": null,
+  "services": [
+    {
+      "name": "checkout-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.28,
+      "normal_mem": 0.34,
+      "incident_cpu": 0.30,
+      "incident_mem": 0.35,
+      "normal_http_rt": 120.0,
+      "incident_http_rt": 130.0,
+      "status": "healthy"
+    },
+    {
+      "name": "payments-api",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.31,
+      "normal_mem": 0.41,
+      "incident_cpu": 0.33,
+      "incident_mem": 0.42,
+      "normal_consumer_rpc_rt": 18.0,
+      "incident_consumer_rpc_rt": 22.0,
+      "status": "healthy"
+    },
+    {
+      "name": "monitoring-agent",
+      "is_root_cause": true,
+      "is_stateful": false,
+      "normal_cpu": 0.40,
+      "normal_mem": 0.36,
+      "incident_cpu": 0.78,
+      "incident_mem": 0.44,
+      "status": "degraded",
+      "note": "Expected temporary scrape amplification during maintenance."
+    },
+    {
+      "name": "worker-node-4",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": false,
+      "normal_cpu": 0.52,
+      "normal_mem": 0.58,
+      "incident_cpu": 0.93,
+      "incident_mem": 0.62,
+      "status": "degraded",
+      "red_herring_reason": "Scheduled data compaction batch job; unrelated to customer impact."
+    }
+  ],
+  "topology": [
+    {
+      "upstream": "checkout-ui",
+      "downstream": "payments-api",
+      "rpc_type": "http",
+      "avg_rt_ms": 120.0
+    },
+    {
+      "upstream": "payments-api",
+      "downstream": "monitoring-agent",
+      "rpc_type": "metrics",
+      "avg_rt_ms": 20.0
+    }
+  ],
+  "alerts": [
+    {
+      "alert_id": "ALT-PE-001",
+      "service": "monitoring-agent",
+      "metric": "cpu_utilization",
+      "current_value": 0.78,
+      "threshold": 0.70,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-PE-002",
+      "service": "worker-node-4",
+      "metric": "cpu_utilization",
+      "current_value": 0.93,
+      "threshold": 0.85,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    }
+  ],
+  "timeline": [
+    {
+      "step": 0,
+      "event_type": "planned_maintenance",
+      "service": "monitoring-agent",
+      "description": "Scheduled observability pipeline maintenance started."
+    },
+    {
+      "step": 1,
+      "event_type": "stability_check",
+      "service": "checkout-ui",
+      "description": "User-facing KPIs remain within normal bounds."
+    }
+  ]
+}

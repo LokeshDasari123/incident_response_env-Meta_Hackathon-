@@ -1,0 +1,63 @@
+{
+  "scenario_id": "positive_easy_001",
+  "difficulty": "positive_easy",
+  "ground_truth": {
+    "root_cause_service": "monitoring-agent",
+    "root_cause_type": "unknown",
+    "severity": "P3",
+    "affected_services": ["monitoring-agent"],
+    "correct_actions": ["investigate_further", "fix_config"],
+    "best_action": "investigate_further",
+    "requires_stakeholder_message": false,
+    "no_incident": true,
+    "red_herring_services": ["worker-node-4"]
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "exact_match": "monitoring-agent",
+      "partial_credit": {"worker-node-4": 0.2},
+      "weight": 0.20
+    },
+    "root_cause_type": {
+      "exact_match": "unknown",
+      "partial_credit": {"misconfiguration": 0.5, "dependency_failure": 0.3},
+      "weight": 0.15
+    },
+    "severity": {
+      "exact_match": "P3",
+      "partial_credit": {"P2": 0.5},
+      "weight": 0.20
+    },
+    "affected_services": {
+      "required": ["monitoring-agent"],
+      "penalize_if_includes": ["checkout-ui", "payments-api", "worker-node-4"],
+      "penalty_per_wrong": 0.10,
+      "weight": 0.10
+    },
+    "remediation_action": {
+      "full_credit": ["investigate_further"],
+      "partial_credit": {
+        "fix_config": 0.8,
+        "increase_connection_pool": 0.2
+      },
+      "zero_credit": ["rollback", "restart_service", "scale_up", "flush_cache"],
+      "penalty": ["escalate", "reroute_traffic"],
+      "weight": 0.25
+    },
+    "stakeholder_message": {
+      "required": false,
+      "must_contain_any": ["stable", "monitoring", "expected"],
+      "weight": 0.05
+    },
+    "speed_bonus": {
+      "full_bonus_within_steps": 3,
+      "half_bonus_within_steps": 6,
+      "weight": 0.05
+    }
+  },
+  "expected_scores": {
+    "gpt4o": 0.78,
+    "llama70b": 0.66,
+    "random": 0.18
+  }
+}

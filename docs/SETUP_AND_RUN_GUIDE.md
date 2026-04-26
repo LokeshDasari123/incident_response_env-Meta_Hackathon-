@@ -254,6 +254,143 @@ Get-Content data/training_logs/latest_summary.json | ConvertFrom-Json | Format-T
 python scripts/plot_curves.py data/training_logs/reward_curves.json
 ```
 
+### Powerful Prompt Implementation Guide (SFT + RL)
+
+Use this section as the implementation playbook for improving response quality, reducing repeated answers, and avoiding unknown outputs.
+
+#### 1. Prompt Contract (strict output)
+
+Your model prompt should enforce a strict JSON action contract that matches the runtime schema exactly.
+
+Required constraints:
+- Output must be valid JSON only (no prose outside JSON).
+- Use only known enum values for root cause type, severity, and remediation action.
+- Never output placeholder values like unknown unless explicitly justified by missing evidence.
+- Keep confidence in [0.0, 1.0].
+
+Recommended instruction block:
+
+```text
+You are an Incident Commander AI. Return ONLY a JSON object with keys:
+root_cause_service, root_cause_type, severity, affected_services,
+remediation_action, stakeholder_message, confidence, reasoning.
+
+Rules:
+- root_cause_type must be one of:
+  misconfiguration, memory_leak, network_partition, crash_loop,
+  resource_exhaustion, auth_failure, dependency_failure, certificate_expiry
+- severity must be one of: P0, P1, P2, P3
+- remediation_action must be one of:
+  rollback, restart_service, scale_up, fix_config,
+  increase_connection_pool, flush_cache, reroute_traffic,
+  escalate, investigate_further
+- Do not include red-herring services in affected_services.
+- For P0/P1, include a stakeholder_message with ETA and impact.
+```
+
+Implementation note:
+- Add certificate_expiry support in action enums so expert scenarios do not collapse to unknown.
+
+#### 2. SFT First, RL Second
+
+Best sequence for this project:
+1. Run SFT on high-quality labeled traces.
+2. Run GRPO/RL for long-horizon improvement.
+
+SFT dataset sources:
+- Base scenario truth: scenarios/<difficulty>/metadata.json
+- Observation context: scenarios/<difficulty>/scenario.json
+- High-quality trajectories: data/training_logs/training_*.jsonl (filter high-scoring steps)
+
+Recommended SFT fields per sample:
+- input: alerts + metrics + topology + timeline + SLA context
+- target: full IncidentAction JSON
+- metadata: difficulty, step number, red-herring count
+
+Quality filters:
+- Keep only samples with reward >= 0.70 for supervised targets.
+- Remove duplicates with identical input + action.
+- Downsample repetitive investigate_further actions.
+
+#### 3. Anti-Repetition Controls
+
+If repeated answers are appearing after many scenarios, apply all three:
+
+1. Data-level de-duplication
+- Remove near-duplicate training samples by normalized action tuple:
+  (root_cause_service, root_cause_type, severity, remediation_action).
+
+2. Inference-level constraints
+- Reject the same action tuple if repeated N times in a row without reward improvement.
+- Increase penalty for repeated root cause + repeated remediation pattern.
+
+3. Reward-level penalties
+- Penalize red-herring selections harder in medium/hard/expert.
+- Penalize generic responses when enough evidence is available.
+
+#### 4. Positive Scenario Expansion (not only incidents)
+
+To improve robustness and response quality, add positive and neutral operational scenarios in addition to failures.
+
+Recommended positive scenario families:
+
+1. Successful Auto-Heal Validation
+- Trigger: short spike in API latency.
+- Ground truth: no manual remediation needed.
+- Correct action: investigate_further + monitor + stakeholder reassurance.
+
+2. Graceful Failover Success
+- Trigger: primary DB restart with healthy replica takeover.
+- Ground truth: system healthy after failover.
+- Correct action: escalate not required, communicate stability.
+
+3. Planned Maintenance Window
+- Trigger: known deployment event with temporary warning alerts.
+- Ground truth: expected behavior, no incident.
+- Correct action: acknowledge maintenance and avoid false escalation.
+
+4. Capacity Buffer Working As Designed
+- Trigger: traffic surge handled by autoscaling.
+- Ground truth: healthy adaptation, no root fault.
+- Correct action: no rollback, no emergency action, concise stakeholder update.
+
+5. Noise-Only Alert Storm
+- Trigger: monitoring cardinality spike; business KPIs stable.
+- Ground truth: observability issue, not service outage.
+- Correct action: fix monitoring config, do not misclassify as P0.
+
+How to add positive scenarios:
+- Create a new folder set parallel to current difficulty packs, for example:
+  scenarios/positive_easy/, scenarios/positive_medium/
+- Keep the same schema shape as existing scenario.json + metadata.json.
+- In metadata.json, define expected non-incident actions and strong penalties for false escalation.
+
+Suggested positive rubric additions:
+- false_escalation_penalty
+- unnecessary_remediation_penalty
+- communication_clarity_bonus
+- confidence_calibration_bonus
+
+#### 5. Coverage Targets Before Submission
+
+For better generalization, target this minimum mix:
+- 60% incident cascades (current core)
+- 25% positive/healthy-control scenarios
+- 15% ambiguous/noise-heavy scenarios
+
+This mix reduces overfitting to always-broken systems and improves decision calibration.
+
+#### 6. Validation Checklist for Response Quality
+
+Before final submission, verify:
+- Unknown root_cause_type rate < 2%
+- Repeated identical action tuple rate < 5% across 100 episodes
+- Red-herring root cause selection decreases over training
+- P0/P1 stakeholder message compliance > 95%
+- Positive scenario false-escalation rate < 10%
+
+If these metrics are not met, iterate on prompt contract + SFT data filtering first, then rerun RL.
+
 ---
 
 ## 📊 API Endpoints (OpenEnv Spec)

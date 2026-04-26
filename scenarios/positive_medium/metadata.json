@@ -1,0 +1,63 @@
+{
+  "scenario_id": "positive_medium_001",
+  "difficulty": "positive_medium",
+  "ground_truth": {
+    "root_cause_service": "metrics-exporter",
+    "root_cause_type": "misconfiguration",
+    "severity": "P2",
+    "affected_services": ["metrics-exporter", "log-aggregator"],
+    "correct_actions": ["fix_config", "investigate_further"],
+    "best_action": "fix_config",
+    "requires_stakeholder_message": true,
+    "no_incident": true,
+    "red_herring_services": ["log-aggregator"]
+  },
+  "grader_rubric": {
+    "root_cause_service": {
+      "exact_match": "metrics-exporter",
+      "partial_credit": {"log-aggregator": 0.2},
+      "weight": 0.25
+    },
+    "root_cause_type": {
+      "exact_match": "misconfiguration",
+      "partial_credit": {"unknown": 0.4, "dependency_failure": 0.2},
+      "weight": 0.15
+    },
+    "severity": {
+      "exact_match": "P2",
+      "partial_credit": {"P3": 0.5, "P1": 0.2},
+      "weight": 0.15
+    },
+    "affected_services": {
+      "required": ["metrics-exporter", "log-aggregator"],
+      "penalize_if_includes": ["storefront-ui", "api-gateway", "payments-api"],
+      "penalty_per_wrong": 0.12,
+      "weight": 0.10
+    },
+    "remediation_action": {
+      "full_credit": ["fix_config"],
+      "partial_credit": {
+        "investigate_further": 0.6,
+        "increase_connection_pool": 0.2
+      },
+      "zero_credit": ["rollback", "restart_service", "scale_up", "flush_cache"],
+      "penalty": ["escalate", "reroute_traffic"],
+      "weight": 0.25
+    },
+    "stakeholder_message": {
+      "required": true,
+      "must_contain_any": ["no customer impact", "monitoring", "stable", "ETA"],
+      "weight": 0.05
+    },
+    "speed_bonus": {
+      "full_bonus_within_steps": 5,
+      "half_bonus_within_steps": 8,
+      "weight": 0.05
+    }
+  },
+  "expected_scores": {
+    "gpt4o": 0.72,
+    "llama70b": 0.61,
+    "random": 0.16
+  }
+}

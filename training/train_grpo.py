@@ -28,6 +28,10 @@ from typing import Any, Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# -- Load environment variables from .env file ----------------------------------
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 LOG_DIR  = ROOT / "data" / "training_logs"
 CKPT_DIR = ROOT / "data" / "checkpoints"

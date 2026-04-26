@@ -79,6 +79,115 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
         flush=True,
     )
 
+# ── Rule-based incident triage (fallback for auth failures) ───────────────────
+def rule_based_incident_triage(obs: Dict[str, Any], step: int) -> Dict[str, Any]:
+    """
+    Intelligent rule-based incident triage when LLM is unavailable.
+    Uses heuristics based on alerts, metrics, topology, and timeline.
+    """
+    alerts   = obs.get("alerts", [])
+    metrics  = obs.get("metrics", {})
+    topology = obs.get("topology", [])
+    timeline = obs.get("timeline", [])
+    
+    # 1. Find service with highest anomaly score from alerts
+    service_anomaly_score = {}
+    for alert in alerts:
+        service = alert.get("service", "unknown")
+        severity = alert.get("severity", "info")
+        severity_weight = {"critical": 3, "warning": 2, "info": 1}.get(severity, 1)
+        service_anomaly_score[service] = service_anomaly_score.get(service, 0) + severity_weight
+    
+    # 2. Score services by metrics
+    for service, metrics_data in metrics.items():
+        if isinstance(metrics_data, dict):
+            metric_score = 0
+            if metrics_data.get("cpu_utilization", 0) > 0.9:
+                metric_score += 2
+            if metrics_data.get("memory_utilization", 0) > 0.85:
+                metric_score += 2
+            if metrics_data.get("error_rate", 0) > 0.5:
+                metric_score += 3
+            if metrics_data.get("restart_count", 0) > 2:
+                metric_score += 2
+            if metrics_data.get("response_time_ms", 0) > 1000:
+                metric_score += 1
+            service_anomaly_score[service] = service_anomaly_score.get(service, 0) + metric_score
+    
+    # 3. Find root cause service (highest score)
+    root_cause_service = max(service_anomaly_score.keys(), 
+                              key=lambda x: service_anomaly_score[x],
+                              default="unknown")
+    
+    # 4. Determine fault type from timeline and metrics
+    root_cause_type = "unknown"
+    timeline_events = [t.get("event") for t in timeline if isinstance(t, dict)]
+    
+    if any("config" in str(e).lower() for e in timeline_events):
+        root_cause_type = "misconfiguration"
+    elif metrics.get(root_cause_service, {}).get("memory_utilization", 0) > 0.85:
+        root_cause_type = "memory_leak"
+    elif metrics.get(root_cause_service, {}).get("restart_count", 0) > 2:
+        root_cause_type = "crash_loop"
+    elif any("network" in str(e).lower() or "partition" in str(e).lower() 
+             for e in timeline_events):
+        root_cause_type = "network_partition"
+    elif any(metrics.get(root_cause_service, {}).get(k, 0) > 0.9 
+             for k in ["cpu_utilization", "memory_utilization"]):
+        root_cause_type = "resource_exhaustion"
+    
+    # 5. Determine severity
+    alert_count = len(alerts)
+    affected_services_count = len(service_anomaly_score)
+    
+    if affected_services_count >= 2 or alert_count >= 5:
+        severity = "P0"
+    elif alert_count >= 2 or any(a.get("severity") == "critical" for a in alerts):
+        severity = "P1"
+    else:
+        severity = "P2"
+    
+    # 6. Identify affected services (cascade chain)
+    affected_services = [s for s in sorted(service_anomaly_score.keys(),
+                                            key=lambda x: service_anomaly_score[x],
+                                            reverse=True)][:3]
+    
+    # 7. Determine remediation action
+    remediation_map = {
+        "misconfiguration": "fix_config",
+        "memory_leak": "restart_service",
+        "crash_loop": "restart_service",
+        "network_partition": "fix_config",
+        "resource_exhaustion": "scale_up",
+    }
+    remediation_action = remediation_map.get(root_cause_type, "investigate_further")
+    
+    # 8. Build stakeholder message if needed
+    stakeholder_message = None
+    if severity in ("P0", "P1"):
+        stakeholder_message = (
+            f"{root_cause_service} showing {root_cause_type.replace('_', ' ')} "
+            f"impacting {len(affected_services)} services. "
+            f"Severity: {severity}. Action: {remediation_action.replace('_', ' ')}. "
+            f"ETA: ~10 minutes."
+        )
+    
+    return {
+        "root_cause_service": root_cause_service,
+        "root_cause_type": root_cause_type,
+        "severity": severity,
+        "affected_services": affected_services,
+        "remediation_action": remediation_action,
+        "stakeholder_message": stakeholder_message,
+        "confidence": 0.6,  # Lower confidence for rule-based
+        "reasoning": (
+            f"[RULE-BASED] Analyzed {len(alerts)} alerts and {len(metrics)} services. "
+            f"Root cause: {root_cause_service} ({service_anomaly_score.get(root_cause_service, 0)} points). "
+            f"Pattern: {root_cause_type}. Affected chain: {' → '.join(affected_services[:3])}."
+        ),
+    }
+
+
 # ── Prompts ───────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = textwrap.dedent("""
 You are an expert SRE triaging a production incident.
@@ -172,15 +281,8 @@ JSON only. Include ALL affected_services. Write stakeholder_message for P0/P1.
 
 def call_llm(client: OpenAI, obs: Dict[str, Any], step: int,
              best_score: float, best_action: Optional[Dict]) -> Dict[str, Any]:
-    """Single LLM call with retry on rate limit."""
-    fallback = {
-        "root_cause_service": "unknown", "root_cause_type": "unknown",
-        "severity": "P2", "affected_services": [],
-        "remediation_action": "investigate_further",
-        "stakeholder_message": None, "confidence": 0.0,
-        "reasoning": "LLM unavailable.",
-    }
-
+    """Single LLM call with retry on rate limit. Falls back to rule-based on auth errors."""
+    
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = client.chat.completions.create(
@@ -204,24 +306,37 @@ def call_llm(client: OpenAI, obs: Dict[str, Any], step: int,
             return json.loads(text)
 
         except json.JSONDecodeError:
-            return fallback
+            # JSON parse error — fallback to rule-based
+            print(f"[DEBUG] JSON decode error, using rule-based fallback", flush=True)
+            return rule_based_incident_triage(obs, step)
 
         except Exception as exc:
             s = str(exc)
-            # No credits — stop immediately, no retry
+            
+            # ─ Authentication failure (401) ─ Use rule-based mode ──────────────────
+            if "401" in s or "Invalid username" in s or "Unauthorized" in s:
+                print(f"[DEBUG] Authentication failed (401): Using rule-based mode", flush=True)
+                return rule_based_incident_triage(obs, step)
+            
+            # No credits (402) — stop immediately, use rule-based
             if "402" in s or "depleted" in s.lower():
-                print(f"[DEBUG] LLM call failed: {exc}", flush=True)
-                return fallback
+                print(f"[DEBUG] No API credits (402): Using rule-based fallback", flush=True)
+                return rule_based_incident_triage(obs, step)
+            
             # Rate limit — wait and retry
             if ("429" in s or "rate" in s.lower()) and attempt < MAX_RETRIES:
                 wait = RETRY_WAIT * attempt
                 print(f"[DEBUG] Rate limit, retrying in {wait}s...", flush=True)
                 time.sleep(wait)
                 continue
-            print(f"[DEBUG] LLM call failed: {exc}", flush=True)
-            return fallback
+            
+            # Other errors — fallback to rule-based
+            print(f"[DEBUG] LLM call failed: {exc}, using rule-based fallback", flush=True)
+            return rule_based_incident_triage(obs, step)
 
-    return fallback
+    # All retries exhausted
+    print(f"[DEBUG] Max retries exhausted, using rule-based fallback", flush=True)
+    return rule_based_incident_triage(obs, step)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

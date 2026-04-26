@@ -18,12 +18,18 @@ class RootCauseType(str, Enum):
     CRASH_LOOP          = "crash_loop"
     RESOURCE_EXHAUSTION = "resource_exhaustion"
     AUTH_FAILURE        = "auth_failure"
+    CERTIFICATE_EXPIRY  = "certificate_expiry"
     DEPENDENCY_FAILURE  = "dependency_failure"
     UNKNOWN             = "unknown"
 
     @classmethod
     def _missing_(cls, value):
         """Fall back to UNKNOWN for any unrecognised value from LLM."""
+        if isinstance(value, str):
+            normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+            for member in cls:
+                if member.value == normalized:
+                    return member
         return cls.UNKNOWN
 
 

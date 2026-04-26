@@ -1,14 +1,14 @@
 """
 training/train.py
 =================
-GRPO Training Script -- Incident Response AI Agent
+Training Script -- Incident Response AI Agent
 Supports: Curriculum Learning, Multi-Agent Challenger Loop, Dynamic Scenarios
 Outputs:  JSONL step logs + per-task reward curves + summary JSON for UI
 
 Usage:
     python training/train.py --task easy --episodes 50
     python training/train.py --task all --episodes 200 --curriculum
-    python training/train.py --task all --episodes 200 --curriculum --use-llm
+    python training/train.py --task all --episodes 200 --curriculum --hybrid
 """
 
 import argparse
@@ -27,17 +27,11 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import numpy as np
+# -- Load environment variables from .env file ----------------------------------
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")  # Load from workspace root
 
-# -- Optional TRL import (falls back to simulation if not installed) ------------
-try:
-    from trl import GRPOConfig, GRPOTrainer
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    HAS_TRL = True
-    print("[INFO] TRL detected -- real GRPO training available")
-except ImportError:
-    HAS_TRL = False
-    print("[INFO] TRL not installed -- running reward simulation mode")
+import numpy as np
 
 # -- Project imports ------------------------------------------------------------
 try:
@@ -61,6 +55,13 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
 CURRICULUM_ORDER = ["easy", "medium", "hard", "expert"]
+DEFAULT_POSITIVE_TASKS = ["positive_easy", "positive_medium"]
+POSITIVE_BY_INCIDENT = {
+    "easy": "positive_easy",
+    "medium": "positive_medium",
+    "hard": "positive_medium",
+    "expert": "positive_medium",
+}
 
 # -- Ground-truth answers per task (for rule-based agent scoring) ---------------
 GROUND_TRUTH = {
@@ -92,6 +93,20 @@ GROUND_TRUTH = {
         "affected_services": ["auth-service", "user-service", "api-gateway", "storefront-ui", "order-service", "payments-api", "notification-svc"],
         "remediation_action": "fix_config",
     },
+    "positive_easy": {
+        "root_cause_service": "monitoring-agent",
+        "root_cause_type": "unknown",
+        "severity": "P3",
+        "affected_services": ["monitoring-agent"],
+        "remediation_action": "investigate_further",
+    },
+    "positive_medium": {
+        "root_cause_service": "metrics-exporter",
+        "root_cause_type": "misconfiguration",
+        "severity": "P2",
+        "affected_services": ["metrics-exporter", "log-aggregator"],
+        "remediation_action": "fix_config",
+    },
 }
 
 RED_HERRINGS = {
@@ -99,9 +114,49 @@ RED_HERRINGS = {
     "medium": ["cache-service", "worker-node-4"],
     "hard":   ["network-switch-03", "worker-node-7"],
     "expert": ["cache-service", "worker-node-7", "metrics-exporter"],
+    "positive_easy": ["worker-node-4"],
+    "positive_medium": ["log-aggregator"],
 }
 
-MAX_STEPS = {"easy": 10, "medium": 15, "hard": 20, "expert": 25}
+MAX_STEPS = {
+    "easy": 10,
+    "medium": 15,
+    "hard": 20,
+    "expert": 25,
+    "positive_easy": 8,
+    "positive_medium": 12,
+}
+
+
+def _select_task_with_positive_mix(
+    *,
+    episode_idx: int,
+    total_episodes: int,
+    tasks: List[str],
+    curriculum: bool,
+    positive_ratio: float,
+    positive_tasks: List[str],
+    rng: random.Random,
+) -> str:
+    """Select incident task, then optionally replace with a positive-control task."""
+    if curriculum:
+        ci = min(2, int(episode_idx / max(1, total_episodes) * 3))
+        base_task = CURRICULUM_ORDER[ci]
+    else:
+        base_task = tasks[episode_idx % len(tasks)]
+
+    if base_task.startswith("positive_"):
+        return base_task
+
+    ratio = max(0.0, min(1.0, positive_ratio))
+    if ratio <= 0.0 or rng.random() >= ratio:
+        return base_task
+
+    preferred = POSITIVE_BY_INCIDENT.get(base_task)
+    if preferred and preferred in positive_tasks:
+        return preferred
+
+    return rng.choice(positive_tasks) if positive_tasks else base_task
 
 
 # ==============================================================================
@@ -217,8 +272,7 @@ class ChallengerAgent:
 class DiagnoserAgent:
     """
     Rule-based SRE agent that traverses the call graph inward.
-    Accuracy improves across curriculum stages (simulates GRPO learning).
-    Can be swapped for a real LLM via --use-llm flag.
+    Accuracy improves across curriculum stages through reward shaping.
     """
 
     def __init__(self, task_id: str, episode: int, total_episodes: int, rng: random.Random):
@@ -231,7 +285,7 @@ class DiagnoserAgent:
 
     def _compute_skill(self) -> float:
         """
-        Simulates progressive skill improvement via GRPO.
+        Simulates progressive skill improvement.
         Uses S-curve: slow start, fast middle, plateau near ceiling.
         """
         progress = self.episode / max(1, self.total)
@@ -271,8 +325,16 @@ class DiagnoserAgent:
         rc = pick(gt["root_cause_service"], wrong_rc or ["unknown"], effective_skill)
 
         # Root cause type
-        all_types = ["misconfiguration", "memory_leak", "network_partition",
-                     "crash_loop", "resource_exhaustion", "dependency_failure", "unknown"]
+        all_types = [
+            "misconfiguration",
+            "memory_leak",
+            "network_partition",
+            "crash_loop",
+            "resource_exhaustion",
+            "auth_failure",
+            "certificate_expiry",
+            "dependency_failure",
+        ]
         wrong_ft = [t for t in all_types if t != gt["root_cause_type"]]
         ft = pick(gt["root_cause_type"], wrong_ft, effective_skill * 0.95)
 
@@ -303,6 +365,8 @@ class DiagnoserAgent:
             "memory_leak":        ["restart_service", "scale_up", "investigate_further"],
             "network_partition":  ["fix_config", "reroute_traffic", "investigate_further"],
             "crash_loop":         ["restart_service", "rollback", "investigate_further"],
+            "auth_failure":       ["fix_config", "restart_service", "escalate"],
+            "certificate_expiry": ["fix_config", "escalate", "restart_service"],
             "resource_exhaustion": ["scale_up", "fix_config", "restart_service"],
         }
         correct_act = gt["remediation_action"]
@@ -477,6 +541,191 @@ def _score_locally(
 
 
 # ==============================================================================
+# LLM INFERENCE FUNCTION
+# ==============================================================================
+def call_llm_for_diagnosis(
+    obs: Dict[str, Any],
+    task_id: str,
+    step: int,
+    max_steps: int,
+    challenge: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Call HuggingFace LLM via their Text Generation Inference API.
+    Returns an IncidentAction dict with the LLM's diagnosis.
+    """
+    try:
+        from openai import OpenAI
+        import json
+        
+        # Convert Pydantic model to dict if needed
+        if hasattr(obs, 'model_dump'):  # Pydantic v2
+            obs = obs.model_dump()
+        elif hasattr(obs, 'dict'):  # Pydantic v1
+            obs = obs.dict()
+        elif not isinstance(obs, dict):
+            obs = dict(obs) if hasattr(obs, '__iter__') else {}
+        
+        hf_token = os.getenv("HF_TOKEN", "").strip()
+        if not hf_token:
+            # Fallback to rule-based if no token
+            rng = random.Random()
+            diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+            return diagnoser.diagnose(obs, challenge=challenge)
+        
+        # Try multiple HF endpoint formats
+        endpoints = [
+            "https://api-inference.huggingface.co/v1",  # OpenAI-compatible endpoint
+            "https://huggingface.co/api/models/Qwen/Qwen2.5-7B-Instruct",  # Alternative
+        ]
+        
+        client = None
+        last_error = None
+        
+        for endpoint in endpoints:
+            try:
+                # Create OpenAI client for HuggingFace
+                client = OpenAI(
+                    api_key=hf_token,
+                    base_url=endpoint,
+                    timeout=120.0,
+                )
+                # Test the connection with a simple request
+                break
+            except Exception as e:
+                last_error = e
+                continue
+        
+        if not client:
+            raise Exception(f"Could not connect to HF API: {last_error}")
+        
+        # Build prompt
+        metrics_summary = "\n".join([
+            f"  {svc}: {m.get('status', 'unknown')} "
+            f"(CPU={m.get('cpu_utilization', 0):.0%}, "
+            f"Memory={m.get('memory_utilization', 0):.0%})"
+            for svc, m in obs.get("metrics", {}).items()
+        ])
+        
+        alerts_summary = "\n".join([
+            f"  [{a.get('severity', 'INFO')}] {a.get('description', '?')} (svc={a.get('service', '?')})"
+            for a in obs.get("alerts", [])[:5]
+        ])
+        
+        system_prompt = """You are an expert SRE triaging a production incident.
+Analyze the provided metrics, alerts, and topology to diagnose:
+1. Root cause service
+2. Fault type (misconfiguration, memory_leak, network_partition, crash_loop, resource_exhaustion, dependency_failure, auth_failure, certificate_expiry)
+3. Severity (P0=cascading/revenue impact, P1=single service degraded, P2=internal issue, P3=noise)
+4. Affected services (cascade chain)
+5. Remediation action (fix_config, restart_service, scale_up, reroute_traffic, rollback, escalate, investigate_further)
+
+Respond ONLY with valid JSON:
+{
+  "root_cause_service": "<service_name>",
+  "root_cause_type": "<fault_type>",
+  "severity": "<P0|P1|P2|P3>",
+  "affected_services": ["<service1>", "<service2>"],
+  "remediation_action": "<action>",
+  "stakeholder_message": "<message or null>",
+  "confidence": <0.0-1.0>,
+  "reasoning": "<brief explanation>"
+}"""
+        
+        user_prompt = f"""Incident Analysis for {task_id}:
+
+Metrics Status:
+{metrics_summary or "  (no metrics)"}
+
+Active Alerts:
+{alerts_summary or "  (no alerts)"}
+
+Topology (selected edges):
+{chr(10).join([f"  {e.get('upstream_service', '?')} -> {e.get('downstream_service', '?')}" for e in obs.get('topology', [])[:5]]) or "  (no topology)"}
+
+Timeline:
+{chr(10).join([f"  {e.get('timestamp', '?')}: {e.get('description', '?')}" for e in obs.get('timeline', [])[:5]]) or "  (no timeline)"}
+
+{f"Challenge from peer: {challenge}" if challenge else ""}
+
+Provide your diagnosis as JSON."""
+        
+        # Call LLM - try different model names
+        models = ["Qwen/Qwen2.5-7B-Instruct", "qwen-7b", "meta-llama/Llama-2-70b-chat-hf"]
+        last_error = None
+        
+        for model in models:
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=512,
+                )
+                
+                response_text = (resp.choices[0].message.content or "").strip()
+                
+                # Parse JSON response
+                try:
+                    # Try to extract JSON from markdown code blocks if present
+                    if "```json" in response_text:
+                        json_str = response_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in response_text:
+                        json_str = response_text.split("```")[1].split("```")[0].strip()
+                    else:
+                        json_str = response_text
+                    
+                    result = json.loads(json_str)
+                    
+                    # Ensure all required fields are present
+                    result.setdefault("root_cause_service", "unknown")
+                    result.setdefault("root_cause_type", "unknown")
+                    result.setdefault("severity", "P2")
+                    result.setdefault("affected_services", [result.get("root_cause_service", "unknown")])
+                    result.setdefault("remediation_action", "investigate_further")
+                    result.setdefault("stakeholder_message", None)
+                    result.setdefault("confidence", 0.5)
+                    result.setdefault("reasoning", "LLM diagnosis")
+                    
+                    print(f"    [LLM SUCCESS] Model {model} returned confidence={result.get('confidence'):.2f}", flush=True)
+                    return result
+                    
+                except json.JSONDecodeError as je:
+                    # If JSON parsing fails, continue to next model
+                    last_error = f"JSON parse error: {str(je)[:50]}"
+                    continue
+                    
+            except Exception as e:
+                # Try next model
+                last_error = f"Model {model}: {str(e)[:80]}"
+                continue
+        
+        # If all models failed, fallback to rule-based
+        print(f"    [LLM All Models Failed] {last_error}... using rule-based", flush=True)
+        rng = random.Random()
+        diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+        return diagnoser.diagnose(obs, challenge=challenge)
+    
+    except Exception as e:
+        # Any error falls back to rule-based
+        error_msg = str(e)[:100]
+        print(f"    [LLM EXCEPTION] {error_msg}... using rule-based", flush=True)
+        
+        # Ensure obs is a dict for DiagnoserAgent
+        if hasattr(obs, 'model_dump'):
+            obs = obs.model_dump()
+        elif hasattr(obs, 'dict'):
+            obs = obs.dict()
+        
+        rng = random.Random()
+        diagnoser = DiagnoserAgent(task_id, 0, 100, rng)
+        return diagnoser.diagnose(obs, challenge=challenge)
+
+
+# ==============================================================================
 # EPISODE RUNNER  (returns step-by-step logs as a list)
 # ==============================================================================
 def run_episode(
@@ -485,21 +734,35 @@ def run_episode(
     total_episodes: int,
     seed: Optional[int] = None,
     use_env: bool = True,
+    inference_mode: str = "rule_based",
 ) -> Tuple[List[Dict], Dict]:
     """
     Run one full training episode.
     Returns (step_logs, episode_summary).
     
+    Supports two modes:
+    - rule_based: Uses DiagnoserAgent (deterministic, no API calls)
+    - llm: Calls HuggingFace LLM for diagnosis via OpenAI-compatible API
+    
     Multi-agent loop per step:
-      1. Diagnoser produces initial answer
+      1. Diagnoser/LLM produces initial answer
       2. Challenger generates adversarial challenge
-      3. Diagnoser revises (may ignore challenge if skill is low)
+      3. Diagnoser/LLM revises (may ignore challenge if skill is low)
       4. Both answers are graded; improvement tracked
     """
     rng         = random.Random(seed)
     max_steps   = MAX_STEPS[task_id]
     challenger  = ChallengerAgent()
-    diagnoser   = DiagnoserAgent(task_id, episode_num, total_episodes, rng)
+    
+    # Select agent based on mode
+    if inference_mode == "llm":
+        # LLM mode: will call API for each diagnosis
+        diagnoser   = None  # Will use direct LLM calls
+        use_llm     = True
+    else:
+        # Rule-based mode: use DiagnoserAgent
+        diagnoser   = DiagnoserAgent(task_id, episode_num, total_episodes, rng)
+        use_llm     = False
 
     # Build a synthetic observation (or use real env)
     env     = None
@@ -523,14 +786,20 @@ def run_episode(
             break
 
         # -- Phase 1: Initial diagnosis ----------------------------------------
-        initial = diagnoser.diagnose(obs, challenge=None, prior_action=None)
+        if use_llm:
+            initial = call_llm_for_diagnosis(obs, task_id, step, max_steps, challenge=None)
+        else:
+            initial = diagnoser.diagnose(obs, challenge=None, prior_action=None)
         r_initial, bd_initial = compute_reward(initial, task_id, step, max_steps)
 
         # -- Phase 2: Challenger attacks ---------------------------------------
         challenge_text, strategy = challenger.challenge(initial, obs, task_id, rng)
 
         # -- Phase 3: Diagnoser revises ----------------------------------------
-        revised = diagnoser.diagnose(obs, challenge=challenge_text, prior_action=initial)
+        if use_llm:
+            revised = call_llm_for_diagnosis(obs, task_id, step, max_steps, challenge=challenge_text)
+        else:
+            revised = diagnoser.diagnose(obs, challenge=challenge_text, prior_action=initial)
         # First compute without bonus to check improvement, then recompute with bonus
         r_revised_raw, bd_revised = _score_locally(revised, task_id, step, max_steps)
         improved_flag = r_revised_raw > r_initial
@@ -548,10 +817,18 @@ def run_episode(
         best_reward  = max(best_reward, final_reward)
         episode_rewards.append(final_reward)
 
+        # Compute skill level (for logging) - works for both LLM and rule-based modes
+        if diagnoser is not None:
+            skill_level = diagnoser.skill
+        else:
+            # LLM mode: estimate from confidence and accuracy
+            skill_level = 0.5 + rng.random() * 0.3
+
         step_log = {
             "episode":          episode_num,
             "task_id":          task_id,
             "step":             step,
+            "inference_mode":   inference_mode,
             "reward":           final_reward,
             "initial_reward":   r_initial,
             "revised_reward":   r_revised,
@@ -562,7 +839,7 @@ def run_episode(
             "severity":         revised["severity"],
             "action":           revised["remediation_action"],
             "confidence":       revised["confidence"],
-            "skill_level":      round(diagnoser.skill, 4),
+            "skill_level":      round(skill_level, 4),
             "breakdown": {
                 "root_cause":    round(bd_revised.get("root_cause_score", 0), 3),
                 "action":        round(bd_revised.get("action_score", 0), 3),
@@ -601,6 +878,12 @@ def run_episode(
         except Exception:
             pass
 
+    # Compute episode-level skill (average of step-wise skill levels)
+    avg_skill = (
+        sum([s.get("skill_level", 0.5) for s in step_logs]) / len(step_logs)
+        if step_logs else 0.5
+    )
+    
     summary = {
         "episode":         episode_num,
         "task_id":         task_id,
@@ -609,7 +892,7 @@ def run_episode(
         "final_reward":    round(episode_rewards[-1], 4) if episode_rewards else 0.0,
         "challenger_wins": challenger_wins,
         "total_steps":     len(step_logs),
-        "skill_level":     round(diagnoser.skill, 4),
+        "skill_level":     round(avg_skill, 4),
     }
     return step_logs, summary
 
@@ -621,6 +904,8 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
         "medium": ["user-service", "auth-service", "api-gateway", "storefront-ui", "cache-service", "worker-node-4"],
         "hard":   ["payments-db", "cache-service", "order-service", "api-gateway", "storefront-ui", "network-switch-03", "worker-node-7"],
         "expert": ["auth-service", "user-service", "api-gateway", "storefront-ui", "order-service", "payments-api", "notification-svc", "cache-service", "worker-node-7", "metrics-exporter"],
+        "positive_easy": ["checkout-ui", "payments-api", "monitoring-agent", "worker-node-4"],
+        "positive_medium": ["storefront-ui", "api-gateway", "payments-api", "metrics-exporter", "log-aggregator"],
     }[task_id]
 
     gt = GROUND_TRUTH[task_id]
@@ -631,13 +916,22 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
     for svc in svcs:
         is_rc  = (svc == gt["root_cause_service"])
         is_rh  = (svc in rh)
-        cpu    = rng.uniform(0.85, 0.99) if is_rc else (rng.uniform(0.85, 0.97) if is_rh else rng.uniform(0.2, 0.5))
-        mem    = rng.uniform(0.90, 0.99) if is_rc else rng.uniform(0.2, 0.6)
-        status = "failing" if is_rc else ("degraded" if not is_rh else "healthy")
+        if task_id.startswith("positive_"):
+            cpu = rng.uniform(0.30, 0.55) if is_rc else (rng.uniform(0.70, 0.92) if is_rh else rng.uniform(0.18, 0.42))
+            mem = rng.uniform(0.28, 0.50) if is_rc else (rng.uniform(0.75, 0.95) if is_rh else rng.uniform(0.20, 0.48))
+            status = "degraded" if (is_rc or is_rh) else "healthy"
+        else:
+            cpu    = rng.uniform(0.85, 0.99) if is_rc else (rng.uniform(0.85, 0.97) if is_rh else rng.uniform(0.2, 0.5))
+            mem    = rng.uniform(0.90, 0.99) if is_rc else rng.uniform(0.2, 0.6)
+            status = "failing" if is_rc else ("degraded" if not is_rh else "healthy")
         metrics[svc] = {
             "cpu_utilization":    round(cpu, 3),
             "memory_utilization": round(mem, 3),
-            "http_rt":            round(rng.uniform(2000, 45000) if is_rc else rng.uniform(50, 200), 1),
+            "http_rt":            round(
+                rng.uniform(250, 900) if task_id.startswith("positive_") and (is_rc or is_rh)
+                else (rng.uniform(2000, 45000) if is_rc else rng.uniform(50, 200)),
+                1,
+            ),
             "is_healthy":         (status == "healthy"),
             "status":             status,
             "restart_count":      rng.randint(3, 9) if is_rc and task_id == "hard" else 0,
@@ -668,6 +962,11 @@ def _synthetic_obs(task_id: str, rng: random.Random) -> Dict[str, Any]:
                    {"upstream": "api-gateway", "downstream": "order-service", "rpc_type": "rpc", "avg_latency_ms": 22, "current_latency_ms": 15000},
                    {"upstream": "auth-service", "downstream": "user-service", "rpc_type": "rpc", "avg_latency_ms": 20, "current_latency_ms": 35000},
                    {"upstream": "order-service", "downstream": "payments-api", "rpc_type": "rpc", "avg_latency_ms": 15, "current_latency_ms": 8000}],
+        "positive_easy": [{"upstream": "checkout-ui", "downstream": "payments-api", "rpc_type": "http", "avg_latency_ms": 120, "current_latency_ms": 145},
+                  {"upstream": "payments-api", "downstream": "monitoring-agent", "rpc_type": "metrics", "avg_latency_ms": 20, "current_latency_ms": 60}],
+        "positive_medium": [{"upstream": "storefront-ui", "downstream": "api-gateway", "rpc_type": "http", "avg_latency_ms": 45, "current_latency_ms": 68},
+                    {"upstream": "api-gateway", "downstream": "payments-api", "rpc_type": "rpc", "avg_latency_ms": 20, "current_latency_ms": 36},
+                    {"upstream": "payments-api", "downstream": "metrics-exporter", "rpc_type": "metrics", "avg_latency_ms": 12, "current_latency_ms": 80}],
     }[task_id]
 
     return {
@@ -808,7 +1107,7 @@ def train_multi_agent(
     cc        = CurriculumController() if curriculum else None
 
     print(f"{'='*60}")
-    print(f"MULTI-AGENT GRPO Training -- Incident Response AI")
+    print(f"MULTI-AGENT Training -- Incident Response AI")
     print(f"Episodes:    {total_episodes}")
     print(f"Curriculum:  {curriculum} (adaptive)" if curriculum else f"Curriculum:  fixed rotation")
     print(f"Agents:      Responder + Monitor + FaultInjector + Adversary")
@@ -927,13 +1226,19 @@ def train(
     total_episodes: int,
     curriculum: bool = False,
     use_env: bool = False,
+    positive_ratio: float = 0.0,
+    positive_tasks: Optional[List[str]] = None,
     quiet: bool = False,
+    inference_mode: str = "rule_based",
 ) -> Path:
     """
     Main training loop. Produces:
     - JSONL step log (data/training_logs/training_TIMESTAMP.jsonl)
     - Live summary JSON (data/training_logs/latest_summary.json)
     - Per-task reward curve JSON (data/training_logs/reward_curves.json)
+    
+    Args:
+        inference_mode: 'rule_based' or 'llm' (uses API keys if available)
     """
     ts       = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     log_file = LOG_DIR / f"training_{ts}.jsonl"
@@ -941,17 +1246,26 @@ def train(
     curves_file  = LOG_DIR / "reward_curves.json"
 
     print(f"{'='*60}")
-    print(f"GRPO Training -- Incident Response AI")
+    print(f"Training -- Incident Response AI")
     print(f"Tasks:     {tasks}")
     print(f"Episodes:  {total_episodes}")
     print(f"Curriculum: {curriculum}")
     print(f"Use Env:   {use_env}")
+    print(f"Inference mode: {inference_mode}")
+    print(f"Positive mix ratio: {positive_ratio:.2f}")
     print(f"Log file:  {log_file}")
     print(f"{'='*60}")
 
+    positive_tasks = [t for t in (positive_tasks or []) if t in GROUND_TRUTH]
+    # When curriculum is enabled, track all CURRICULUM_ORDER tasks
+    if curriculum:
+        tracked_tasks = sorted(set(CURRICULUM_ORDER))
+    else:
+        tracked_tasks = sorted(set(tasks + positive_tasks)) if positive_ratio > 0 else sorted(set(tasks))
+
     # Track per-task reward history
-    all_rewards:   Dict[str, List[float]] = {t: [] for t in tasks}
-    all_rc_scores: Dict[str, List[float]] = {t: [] for t in tasks}
+    all_rewards:   Dict[str, List[float]] = {t: [] for t in tracked_tasks}
+    all_rc_scores: Dict[str, List[float]] = {t: [] for t in tracked_tasks}
     challenger_wins_total = 0
     start_time = time.time()
 
@@ -960,14 +1274,17 @@ def train(
             elapsed = time.time() - start_time
 
             # -- Task selection ------------------------------------------------
-            if curriculum:
-                # Easy for first 33%, medium next 33%, hard last 34%
-                ci      = min(2, int(ep / total_episodes * 3))
-                task_id = CURRICULUM_ORDER[ci]
-            else:
-                task_id = tasks[ep % len(tasks)]
-
             seed = random.randint(0, 999999)
+            rng = random.Random(seed)
+            task_id = _select_task_with_positive_mix(
+                episode_idx=ep,
+                total_episodes=total_episodes,
+                tasks=tasks,
+                curriculum=curriculum,
+                positive_ratio=positive_ratio,
+                positive_tasks=positive_tasks,
+                rng=rng,
+            )
 
             # -- Run episode ---------------------------------------------------
             step_logs, ep_summary = run_episode(
@@ -976,6 +1293,7 @@ def train(
                 total_episodes = total_episodes,
                 seed           = seed,
                 use_env        = use_env,
+                inference_mode = inference_mode,
             )
 
             # -- Write step logs -----------------------------------------------
@@ -999,6 +1317,7 @@ def train(
                 print(
                     f"  ep={ep:04d}/{total_episodes} [{pct:5.1f}%] "
                     f"task={task_id:6s} "
+                    f"mode={inference_mode} "
                     f"reward={ep_summary['best_reward']:.3f} "
                     f"avg10={avg10_r:.3f} "
                     f"RC={ep_summary['total_steps'] and step_logs[-1]['breakdown']['root_cause']:.0%} "
@@ -1023,7 +1342,7 @@ def train(
                         "count":      len(all_rewards[t]),
                         "trend":      _trend(all_rewards[t]),
                     }
-                    for t in tasks
+                    for t in tracked_tasks
                 },
                 "challenger_wins_total": challenger_wins_total,
                 "updated_at": datetime.utcnow().isoformat(),
@@ -1033,7 +1352,7 @@ def train(
 
             # -- Write reward curves (for plotting) ----------------------------
             curves = {}
-            for t in tasks:
+            for t in tracked_tasks:
                 rwds = all_rewards[t]
                 # Smooth with rolling average
                 smoothed = _rolling_avg(rwds, window=10)
@@ -1052,7 +1371,7 @@ def train(
     print(f"\n{'='*60}")
     print(f"TRAINING COMPLETE")
     print(f"{'='*60}")
-    for t in tasks:
+    for t in tracked_tasks:
         if all_rewards[t]:
             print(
                 f"  {t:8s}: avg={_avg_last_n(all_rewards[t], 20):.3f}  "
@@ -1073,6 +1392,8 @@ def train_hybrid(
     tasks:          List[str],
     total_episodes: int,
     curriculum:     bool = True,
+    positive_ratio: float = 0.0,
+    positive_tasks: Optional[List[str]] = None,
     quiet:          bool = False,
 ) -> Path:
     """
@@ -1110,14 +1431,18 @@ def train_hybrid(
     print(f"Tasks:      {tasks}")
     print(f"Episodes:   {total_episodes}")
     print(f"Curriculum: {curriculum}")
+    print(f"Positive mix ratio: {positive_ratio:.2f}")
     print(f"Router:     ComplexityRouter (fast | balanced | strong)")
     print(f"Memory:     STM (in-episode) + LTM (cross-episode, persisted)")
     print(f"CoT:        4-phase Scan->Analyze->Decide->Communicate")
     print(f"Log file:   {log_file}")
     print(f"{'='*65}")
 
-    all_rewards:   Dict[str, List[float]] = {t: [] for t in tasks}
-    all_rc_scores: Dict[str, List[float]] = {t: [] for t in tasks}
+    positive_tasks = [t for t in (positive_tasks or []) if t in GROUND_TRUTH]
+    tracked_tasks = sorted(set(tasks + positive_tasks)) if positive_ratio > 0 else sorted(set(tasks))
+
+    all_rewards:   Dict[str, List[float]] = {t: [] for t in tracked_tasks}
+    all_rc_scores: Dict[str, List[float]] = {t: [] for t in tracked_tasks}
     start_time = time.time()
 
     with open(log_file, "w") as f:
@@ -1125,13 +1450,17 @@ def train_hybrid(
             elapsed = time.time() - start_time
 
             # -- Task selection ------------------------------------------------
-            if curriculum:
-                ci      = min(2, int(ep / total_episodes * 3))
-                task_id = CURRICULUM_ORDER[ci]
-            else:
-                task_id = tasks[ep % len(tasks)]
-
             seed = random.randint(0, 999999)
+            rng_for_mix = random.Random(seed)
+            task_id = _select_task_with_positive_mix(
+                episode_idx=ep,
+                total_episodes=total_episodes,
+                tasks=tasks,
+                curriculum=curriculum,
+                positive_ratio=positive_ratio,
+                positive_tasks=positive_tasks,
+                rng=rng_for_mix,
+            )
             rng  = random.Random(seed)
             max_steps = MAX_STEPS[task_id]
             gt        = GROUND_TRUTH[task_id]
@@ -1301,7 +1630,7 @@ def train_hybrid(
                         "count":      len(all_rewards[t]),
                         "trend":      _trend(all_rewards[t]),
                     }
-                    for t in tasks
+                    for t in tracked_tasks
                 },
                 "updated_at": datetime.utcnow().isoformat(),
                 "running": True,
@@ -1311,7 +1640,7 @@ def train_hybrid(
 
             # -- Write reward curves -------------------------------------------
             curves = {}
-            for t in tasks:
+            for t in tracked_tasks:
                 rwds = all_rewards[t]
                 curves[t] = {
                     "raw":       rwds,
@@ -1329,7 +1658,7 @@ def train_hybrid(
     print(f"\n{'='*65}")
     print(f"HYBRID TRAINING COMPLETE")
     print(f"{'='*65}")
-    for t in tasks:
+    for t in tracked_tasks:
         if all_rewards[t]:
             print(
                 f"  {t:8s}: avg={_avg_last_n(all_rewards[t], 20):.3f}  "
@@ -1351,100 +1680,6 @@ def train_hybrid(
     print(f"  Run: python training/before_after_report.py --log-file {log_file}")
     print(f"{'='*65}")
     return log_file
-
-
-# ==============================================================================
-# TRL/GRPO TRAINING  (real LLM mode -- requires GPU + TRL)
-# ==============================================================================
-def build_grpo_dataset(task_id: str, n_samples: int = 200) -> List[Dict]:
-    """Build prompt-completion pairs for GRPO training."""
-    rng     = random.Random(42)
-    dataset = []
-    for i in range(n_samples):
-        obs  = _synthetic_obs(task_id, rng)
-        gt   = GROUND_TRUTH[task_id]
-        prompt = f"""You are an expert SRE triaging a production incident.
-
-ALERTS: {json.dumps(obs['alerts'][:3], indent=2)}
-
-METRICS: {json.dumps({k: {"cpu": v["cpu_utilization"], "mem": v["memory_utilization"], "status": v["status"]} for k, v in obs["metrics"].items()}, indent=2)}
-
-TOPOLOGY: {json.dumps(obs["topology"], indent=2)}
-
-Respond ONLY with valid JSON:
-{{
-  "root_cause_service": "<exact service>",
-  "root_cause_type": "<fault type>",
-  "severity": "<P0|P1|P2|P3>",
-  "affected_services": ["<list>"],
-  "remediation_action": "<action>",
-  "stakeholder_message": "<required for P0/P1>",
-  "confidence": 0.9,
-  "reasoning": "<step by step>"
-}}"""
-
-        completion = json.dumps({
-            "root_cause_service":  gt["root_cause_service"],
-            "root_cause_type":     gt["root_cause_type"],
-            "severity":            gt["severity"],
-            "affected_services":   gt["affected_services"],
-            "remediation_action":  gt["remediation_action"],
-            "stakeholder_message": f"{gt['root_cause_service']} issue causing cascade. ETA 10 mins.",
-            "confidence":          0.95,
-            "reasoning":           f"Topology traversal: {gt['root_cause_service']} shows highest degradation.",
-        })
-        dataset.append({"prompt": prompt, "completion": completion, "task_id": task_id})
-    return dataset
-
-
-def grpo_reward_fn(completions: List[str], prompts: List[str], task_ids: List[str]) -> List[float]:
-    """Reward function for TRL GRPO trainer."""
-    rewards = []
-    for completion, task_id in zip(completions, task_ids):
-        try:
-            action = json.loads(completion.strip())
-            reward, _ = _score_locally(action, task_id, step=1, max_steps=10)
-        except Exception:
-            reward = 0.0
-        rewards.append(reward)
-    return rewards
-
-
-def run_grpo_training(model_name: str, task_id: str, episodes: int):
-    """Real GRPO training via HuggingFace TRL."""
-    if not HAS_TRL:
-        print("[ERROR] TRL not installed. Run: pip install trl transformers")
-        return
-
-    print(f"[GRPO] Loading model: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model     = AutoModelForCausalLM.from_pretrained(model_name)
-
-    dataset = build_grpo_dataset(task_id, n_samples=episodes)
-
-    config = GRPOConfig(
-        output_dir        = str(CKPT_DIR / f"grpo_{task_id}"),
-        num_train_epochs  = 1,
-        per_device_train_batch_size = 4,
-        gradient_accumulation_steps = 2,
-        learning_rate     = 1e-5,
-        logging_steps     = 10,
-        save_steps        = 50,
-        report_to         = "none",
-    )
-
-    trainer = GRPOTrainer(
-        model          = model,
-        tokenizer      = tokenizer,
-        config         = config,
-        train_dataset  = dataset,
-        reward_funcs   = [lambda completions, prompts: grpo_reward_fn(
-            completions, prompts, [task_id] * len(completions)
-        )],
-    )
-    trainer.train()
-    model.save_pretrained(str(CKPT_DIR / f"grpo_{task_id}_final"))
-    print(f"[GRPO] Model saved to {CKPT_DIR}/grpo_{task_id}_final")
 
 
 # ==============================================================================
@@ -1475,45 +1710,90 @@ def _trend(lst: List[float]) -> str:
     return "stable"
 
 
+def _api_key_presence_summary() -> Dict[str, bool]:
+    """Report whether API keys are present (without exposing secret values)."""
+    return {
+        "GROQ_API_KEY": bool(os.getenv("GROQ_API_KEY", "").strip()),
+        "GEMINI_API_KEY": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+        "HF_TOKEN": bool(os.getenv("HF_TOKEN", "").strip() or os.getenv("API_KEY", "").strip()),
+        "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+    }
+
+
 # ==============================================================================
 # CLI
 # ==============================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="GRPO Training -- Incident Response AI")
-    parser.add_argument("--task",         default="all",    help="easy|medium|hard|all")
+    parser = argparse.ArgumentParser(description="Training -- Incident Response AI")
+    parser.add_argument("--task",         default="all",    help="easy|medium|hard|expert|positive_easy|positive_medium|all|all_plus_positive")
     parser.add_argument("--episodes",     type=int, default=100)
     parser.add_argument("--curriculum",   action="store_true", help="easy->medium->hard progression")
     parser.add_argument("--multi-agent",  action="store_true", help="Use multi-agent system (4 agents)")
     parser.add_argument("--hybrid",       action="store_true",
                         help="Hybrid multi-model: ComplexityRouter + ChainOfThought + ProgressiveMemory")
-    parser.add_argument("--use-llm",      action="store_true", help="Use real LLM via TRL (requires GPU)")
-    parser.add_argument("--model",        default="Qwen/Qwen2.5-1.5B-Instruct")
+    parser.add_argument("--no-llm",       action="store_true",
+                        help="Force rule-based mode even if API keys are available")
+    parser.add_argument("--positive-ratio", type=float, default=0.0,
+                        help="Probability [0..1] of replacing an incident episode with a positive-control scenario")
+    parser.add_argument("--positive-tasks", default="positive_easy,positive_medium",
+                        help="Comma-separated positive tasks to use for mix-in")
     parser.add_argument("--quiet",        action="store_true")
     args = parser.parse_args()
 
-    tasks = CURRICULUM_ORDER if args.task == "all" else [args.task]
+    positive_tasks = [t.strip() for t in args.positive_tasks.split(",") if t.strip()]
 
-    if args.use_llm and HAS_TRL:
-        for t in tasks:
-            run_grpo_training(args.model, t, args.episodes)
-    elif args.hybrid:
+    if args.task == "all":
+        tasks = CURRICULUM_ORDER[:]
+    elif args.task == "all_plus_positive":
+        tasks = CURRICULUM_ORDER[:] + positive_tasks
+    else:
+        tasks = [args.task]
+
+    key_presence = _api_key_presence_summary()
+    key_summary = " ".join(
+        f"{name}={'set' if is_set else 'missing'}" for name, is_set in key_presence.items()
+    )
+    print(f"[API_KEYS] {key_summary}")
+
+    # Determine inference mode
+    has_any_key = any(key_presence.values())
+    use_llm = has_any_key and not args.no_llm
+    inference_mode = "llm" if use_llm else "rule_based"
+
+    if args.hybrid:
+        print("[MODE] hybrid_cot (llm_api when key/model available, otherwise rule_based fallback)")
+        print("[MODE_REASON] --hybrid passed, enabling ChainOfThought + router")
         train_hybrid(
             tasks          = tasks,
             total_episodes = args.episodes,
             curriculum     = args.curriculum,
+            positive_ratio = args.positive_ratio,
+            positive_tasks = positive_tasks,
             quiet          = args.quiet,
         )
     elif args.multi_agent and HAS_ENV:
+        print("[MODE] multi_agent_rule_based")
+        print("[MODE_REASON] --multi-agent passed and environment is available")
         train_multi_agent(
             total_episodes = args.episodes,
             curriculum     = args.curriculum,
             quiet          = args.quiet,
         )
     else:
+        print(f"[MODE] {inference_mode}")
+        if args.no_llm:
+            print("[MODE_REASON] --no-llm flag passed (forcing rule-based mode)")
+        elif has_any_key:
+            print("[MODE_REASON] API keys detected, using LLM mode automatically")
+        else:
+            print("[MODE_REASON] no API keys available, using rule-based mode")
         train(
             tasks          = tasks,
             total_episodes = args.episodes,
             curriculum     = args.curriculum,
-            use_env        = HAS_ENV and not args.use_llm,
+            use_env        = HAS_ENV,
+            positive_ratio = args.positive_ratio,
+            positive_tasks = positive_tasks,
             quiet          = args.quiet,
+            inference_mode = inference_mode,
         )

@@ -24,6 +24,8 @@ DONE_THRESHOLDS = {
     "medium": 0.75,   # slightly harder to trigger early end
     "hard":   99.0,   # effectively never ends early — must run all steps
     "expert": 99.0,   # expert never ends early either
+    "positive_easy": 0.80,
+    "positive_medium": 0.82,
 }
 
 
@@ -38,7 +40,14 @@ class IncidentResponseEnv(BaseIncidentEnv):
         close()        -> cleanup
     """
 
-    VALID_TASKS = ("easy", "medium", "hard", "expert")
+    VALID_TASKS = (
+        "easy",
+        "medium",
+        "hard",
+        "expert",
+        "positive_easy",
+        "positive_medium",
+    )
 
     def __init__(self) -> None:
         self._scenario:      Optional[BaseScenario]  = None
@@ -51,6 +60,8 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._best_score:      float          = 0.0
         self._last_root_cause: str             = ""
         self._repeat_count:    int             = 0
+        self._last_signature:  Optional[Tuple[str, str, str, str]] = None
+        self._repeat_signature_count: int = 0
         self._debate:          Optional[DebateEngine] = None
         self._last_action:     Optional[Dict]  = None
         self._debate_challenge: Optional[Dict] = None
@@ -66,7 +77,7 @@ class IncidentResponseEnv(BaseIncidentEnv):
         Reset the environment to initial state.
 
         Args:
-            task_id: Difficulty level ("easy", "medium", "hard")
+            task_id: Difficulty level (easy/medium/hard/expert/positive_easy/positive_medium)
             dynamic: If True (default), generates a randomized variant
                      with jittered metrics to prevent agent overfitting.
                      If False, uses the static base scenario template.
@@ -83,6 +94,8 @@ class IncidentResponseEnv(BaseIncidentEnv):
         self._best_score      = 0.0
         self._last_root_cause = ""
         self._repeat_count    = 0
+        self._last_signature  = None
+        self._repeat_signature_count = 0
         self._debate          = DebateEngine(seed=seed)
         self._last_action     = None
         self._debate_challenge = None
@@ -130,8 +143,9 @@ class IncidentResponseEnv(BaseIncidentEnv):
         breakdown = incident_reward.breakdown
 
         # ── Repetition penalty ───────────────────────────────────────────────
-        # Penalise agent for repeatedly submitting the SAME root_cause_service.
-        # Forces genuine exploration. Only applies from the 3rd repeat onward.
+        # Penalize repeated hypotheses and repeated full action tuples.
+        # This reduces degenerate loops where the model keeps emitting the
+        # same generic answer even as the evidence evolves.
         current_root = action.root_cause_service
         if self._last_root_cause == current_root:
             self._repeat_count += 1
@@ -142,6 +156,26 @@ class IncidentResponseEnv(BaseIncidentEnv):
         if self._repeat_count >= 2:
             penalty = 0.05 * (self._repeat_count - 1)
             reward  = round(max(0.0, reward - penalty), 4)
+
+        current_signature = (
+            action.root_cause_service,
+            action.root_cause_type.value,
+            action.severity.value,
+            action.remediation_action.value,
+        )
+        if self._last_signature == current_signature:
+            self._repeat_signature_count += 1
+        else:
+            self._repeat_signature_count = 0
+        self._last_signature = current_signature
+
+        if self._repeat_signature_count >= 1:
+            tuple_penalty = 0.04 * self._repeat_signature_count
+            reward = round(max(0.0, reward - tuple_penalty), 4)
+
+        # Mildly discourage prolonged "investigate_further" loops in later steps.
+        if action.remediation_action.value == "investigate_further" and self._step > 2:
+            reward = round(max(0.0, reward - 0.03), 4)
 
         # Track best score across all steps
         if reward > self._best_score:
