@@ -1,5 +1,5 @@
 
-# 🚨 Incident Response OpenEnv
+## Incident Response OpenEnv
 
 > OpenEnv-compatible RL environment for real-world incident response triage.
 
@@ -98,6 +98,9 @@ score = root_cause × 0.35
 ```
 
 ---
+## Architecture diagram
+
+<img width="1303" height="1600" alt="WhatsApp Image 2026-04-26 at 3 50 38 PM" src="https://github.com/user-attachments/assets/f407f9d3-7ed3-43fc-85d8-90d31bc1bedc" />
 
 ## 🚀 Quick Start
 
@@ -108,6 +111,8 @@ pip install -r requirements.txt
 # Run local validation
 python scripts/validate_env.py
 
+# frontend NextJS
+npm run dev
 # Start server
 uvicorn server.app:app --host 0.0.0.0 --port 7860
 
@@ -156,3 +161,22 @@ https://loki7123-incident-response-env.hf.space
 - **Alibaba Cluster Trace v2021** — metric patterns and service topology
 - **Microsoft AIOpsLab** — fault injection taxonomy
 - **Google SRE Book (Ch 13–16)** — incident scenario narratives and grader rubrics
+## POC
+<img width="1600" height="767" alt="image" src="https://github.com/user-attachments/assets/3db3d68c-15b1-4658-919b-4d3823d9bfe7" />
+
+<img width="1600" height="672" alt="image" src="https://github.com/user-attachments/assets/aee1a659-5631-4c42-a214-588eb94e41e8" />
+
+<img width="1600" height="743" alt="image" src="https://github.com/user-attachments/assets/6b9e9ae5-359b-48a9-bb57-537af4d8954c" />
+
+<img width="1600" height="755" alt="image" src="https://github.com/user-attachments/assets/8356f7b0-4476-4d31-9f74-2e90ac45a801" />
+<img width="1471" height="914" alt="image" src="https://github.com/user-attachments/assets/8583a1f1-9f7f-45a8-80df-5492f440bad9" />
+
+<img width="1086" height="857" alt="image" src="https://github.com/user-attachments/assets/b00a7093-2b7e-4872-bdf6-40072726575b" />
+
+<img width="1600" height="765" alt="image" src="https://github.com/user-attachments/assets/1c4d1215-b6bb-4805-a4d7-ff1fe9985dc7" />
+
+<img width="1600" height="711" alt="image" src="https://github.com/user-attachments/assets/5bf4351b-7b21-4c52-af5d-dd3ffec2a411" />
+
+<img width="1600" height="672" alt="image" src="https://github.com/user-attachments/assets/5940e618-22f6-4028-8ecb-5f2cb976982e" />
+
+<img width="1600" height="770" alt="image" src="https://github.com/user-attachments/assets/15084e0f-02f4-420a-b483-f35d90945c37" />
