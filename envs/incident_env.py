@@ -195,6 +195,27 @@ class IncidentResponseEnv(BaseIncidentEnv):
 
         self._last_action = action.model_dump()
 
+        multi_agent_workflow = [
+            {
+                "tier": "L1 Triage Agent",
+                "task": "Initial Triage & Topology Mapping",
+                "output": f"Detected cascade across {len(action.affected_services)} affected services. Assigned severity: {action.severity.value}",
+                "color": "var(--electric)"
+            },
+            {
+                "tier": "L2 Diagnostic Agent",
+                "task": "Root Cause Analysis",
+                "output": f"Diagnosed root cause as {action.root_cause_service} ({action.root_cause_type.value}). Confidence: {int(action.confidence * 100)}%.",
+                "color": "var(--purple)"
+            },
+            {
+                "tier": "L3 Remediation Agent",
+                "task": "Runbook Generation",
+                "output": f"Proposed remediation: {action.remediation_action.value.replace('_', ' ')}.",
+                "color": "var(--volt)"
+            }
+        ]
+
         info = {
             "reward_breakdown": breakdown.model_dump(),
             "episode_id":       self._state.episode_id,
@@ -205,6 +226,7 @@ class IncidentResponseEnv(BaseIncidentEnv):
             "debate_bonus":     debate_bonus,
             "debate_feedback":  debate_feedback_text,
             "debate_summary":   self._debate.get_debate_summary() if self._debate else {},
+            "multi_agent_workflow": multi_agent_workflow,
         }
 
         obs = self._build_observation(
