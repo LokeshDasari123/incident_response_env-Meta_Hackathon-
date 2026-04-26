@@ -87,6 +87,8 @@ class TrainRequest(BaseModel):
     task: str = "all"
     episodes: int = 100
     curriculum: bool = True
+    positive_ratio: float = 0.0
+    positive_tasks: str = "positive_easy,positive_medium"
 
 
 class FaultRequest(BaseModel):
@@ -127,7 +129,14 @@ async def health():
         "environment":     "incident-response-env",
         "version":         "1.0.0",
         "active_sessions": session_manager.active_count,
-        "tasks":           ["easy", "medium", "hard"],
+        "tasks":           [
+            "easy",
+            "medium",
+            "hard",
+            "expert",
+            "positive_easy",
+            "positive_medium",
+        ],
     }
 
 
@@ -205,6 +214,27 @@ async def list_tasks():
                 "max_steps":    20,
                 "description":  "Memory leak + crash-loop across 5 services. SLA breach at step 6.",
             },
+            {
+                "id":           "expert",
+                "name":         "Expert Multi-Vector Cascading Failure",
+                "difficulty":   "expert",
+                "max_steps":    25,
+                "description":  "Certificate expiry + concurrent noise with SLA pressure.",
+            },
+            {
+                "id":           "positive_easy",
+                "name":         "Positive Control - Scheduled Maintenance",
+                "difficulty":   "positive_easy",
+                "max_steps":    8,
+                "description":  "Healthy-control scenario with expected warning noise and no customer-impact incident.",
+            },
+            {
+                "id":           "positive_medium",
+                "name":         "Positive Control - Noise-Only Alert Storm",
+                "difficulty":   "positive_medium",
+                "max_steps":    12,
+                "description":  "Observability noise scenario where customer path remains healthy.",
+            },
         ]
     }
 
@@ -248,6 +278,10 @@ async def train_start(req: TrainRequest, background_tasks: BackgroundTasks):
             ]
             if req.curriculum:
                 cmd.append("--curriculum")
+            if req.positive_ratio > 0:
+                cmd.extend(["--positive-ratio", str(req.positive_ratio)])
+            if req.positive_tasks:
+                cmd.extend(["--positive-tasks", req.positive_tasks])
             subprocess.run(cmd, cwd=str(ROOT), check=False)
         except Exception:
             logger.exception("Background training failed")
@@ -260,6 +294,8 @@ async def train_start(req: TrainRequest, background_tasks: BackgroundTasks):
         "task": req.task,
         "episodes": req.episodes,
         "curriculum": req.curriculum,
+        "positive_ratio": req.positive_ratio,
+        "positive_tasks": req.positive_tasks,
     }
 
 

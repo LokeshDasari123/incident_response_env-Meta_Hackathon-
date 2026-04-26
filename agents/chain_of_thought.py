@@ -83,7 +83,7 @@ class ChainOfThought:
     Respond ONLY with valid JSON (no markdown):
     {
       "root_cause_service": "<exact service name>",
-      "root_cause_type": "<misconfiguration|memory_leak|network_partition|crash_loop|resource_exhaustion|dependency_failure|unknown>",
+            "root_cause_type": "<misconfiguration|memory_leak|network_partition|crash_loop|resource_exhaustion|dependency_failure|auth_failure|certificate_expiry|unknown>",
       "confidence": <0.0-1.0>,
       "reasoning": "<topology traversal step by step>"
     }
@@ -173,6 +173,16 @@ class ChainOfThought:
         rc_service    = analyze_result.get("root_cause_service", top_candidate)
         rc_type       = analyze_result.get("root_cause_type", "unknown")
         confidence    = float(analyze_result.get("confidence", 0.5))
+
+        # Guardrail: if analyze falls back to unknown repeatedly, keep momentum
+        # by inheriting the scan top candidate and assigning calibrated low-mid confidence.
+        if (not rc_service or rc_service == "unknown") and top_candidate and top_candidate != "unknown":
+            rc_service = top_candidate
+            confidence = max(confidence, min(0.65, 0.35 + complexity * 0.35))
+
+        if rc_service and rc_service != "unknown":
+            confidence = max(confidence, 0.35)
+
         print(f"  {prefix}[CoT][ANALYZE] rc={rc_service} type={rc_type} conf={confidence:.0%}", flush=True)
 
         # ── Phase 3: DECIDE ────────────────────────────────────────────────────
@@ -221,10 +231,13 @@ class ChainOfThought:
         memory_context: str,
     ) -> Dict[str, Any]:
         """PHASE 1: Fast model scans for candidate services."""
+        ranked = self._rank_suspicious_services(obs.get("metrics", {}))
+        fallback_candidates = ranked[:3] if ranked else list(obs.get("metrics", {}).keys())[:3]
+        fallback_top = fallback_candidates[0] if fallback_candidates else "unknown"
         fallback = {
-            "candidates": list(obs.get("metrics", {}).keys())[:3],
-            "top_candidate": "unknown",
-            "reasoning": "Scan fallback (rule-based).",
+            "candidates": fallback_candidates,
+            "top_candidate": fallback_top,
+            "reasoning": "Scan fallback (evidence-ranked services).",
         }
 
         user_content = self._build_scan_prompt(obs, memory_context)
@@ -237,6 +250,10 @@ class ChainOfThought:
             max_tokens    = SCAN_MAX_TOKENS,
             fallback      = fallback,
         )
+        if not isinstance(result.get("candidates"), list) or not result.get("candidates"):
+            result["candidates"] = fallback_candidates
+        if not result.get("top_candidate") or result.get("top_candidate") == "unknown":
+            result["top_candidate"] = result["candidates"][0] if result["candidates"] else fallback_top
         return result
 
     def _phase_analyze(
@@ -251,23 +268,27 @@ class ChainOfThought:
         if complexity < 0.25:
             metrics = obs.get("metrics", {})
             # Simple rule: pick the service with highest CPU or memory
-            worst = max(
-                metrics.items(),
-                key=lambda kv: kv[1].get("cpu_utilization", 0) + kv[1].get("memory_utilization", 0),
-                default=("unknown", {}),
-            )
+            ranked = self._rank_suspicious_services(metrics)
+            worst_service = ranked[0] if ranked else "unknown"
+            worst_metrics = metrics.get(worst_service, {}) if worst_service != "unknown" else {}
+            inferred_type = self._infer_fault_type(worst_metrics)
+            conf = 0.35 if worst_service == "unknown" else 0.45
             return {
-                "root_cause_service": worst[0],
-                "root_cause_type":    "unknown",
-                "confidence":         0.4,
+                "root_cause_service": worst_service,
+                "root_cause_type":    inferred_type,
+                "confidence":         conf,
                 "reasoning":          "Low complexity — rule-based analysis.",
             }
 
+        top = scan_result.get("top_candidate", "unknown")
+        top_m = obs.get("metrics", {}).get(top, {}) if top and top != "unknown" else {}
+        inferred_type = self._infer_fault_type(top_m)
+        fallback_conf = min(0.7, 0.35 + complexity * 0.3 + (0.08 if top and top != "unknown" else 0.0))
         fallback = {
-            "root_cause_service": scan_result.get("top_candidate", "unknown"),
-            "root_cause_type":    "unknown",
-            "confidence":         0.3,
-            "reasoning":          "Analyze fallback.",
+            "root_cause_service": top,
+            "root_cause_type":    inferred_type,
+            "confidence":         round(fallback_conf, 2),
+            "reasoning":          "Analyze fallback (scan top candidate + metric-based type inference).",
         }
 
         user_content = self._build_analyze_prompt(obs, memory_context, scan_result)
@@ -472,16 +493,54 @@ class ChainOfThought:
                 text = text[4:]
             text = text.strip()
         try:
-            return json.loads(text)
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return {**fallback, **parsed}
+            return fallback
         except json.JSONDecodeError:
             start = text.find("{")
             end   = text.rfind("}") + 1
             if start >= 0 and end > start:
                 try:
-                    return json.loads(text[start:end])
+                    parsed = json.loads(text[start:end])
+                    if isinstance(parsed, dict):
+                        return {**fallback, **parsed}
+                    return fallback
                 except json.JSONDecodeError:
                     pass
         return fallback
+
+    @staticmethod
+    def _rank_suspicious_services(metrics: Dict[str, Any]) -> List[str]:
+        """Rank services by anomaly score to keep fallback behavior stable and useful."""
+        scored: List[tuple[str, float]] = []
+        for name, m in metrics.items():
+            cpu = float(m.get("cpu_utilization", 0.0) or 0.0)
+            mem = float(m.get("memory_utilization", 0.0) or 0.0)
+            rt = float((m.get("http_rt") or m.get("consumer_rpc_rt") or 0.0) or 0.0)
+            unhealthy = 0.25 if not m.get("is_healthy", True) else 0.0
+            score = cpu * 0.35 + mem * 0.45 + min(1.0, rt / 3000.0) * 0.20 + unhealthy
+            scored.append((name, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [name for name, _ in scored]
+
+    @staticmethod
+    def _infer_fault_type(service_metrics: Dict[str, Any]) -> str:
+        """Lightweight rule-based fault type inference for fallback scenarios."""
+        mem = float(service_metrics.get("memory_utilization", 0.0) or 0.0)
+        cpu = float(service_metrics.get("cpu_utilization", 0.0) or 0.0)
+        restart_count = int(service_metrics.get("restart_count", 0) or 0)
+        rt = float((service_metrics.get("http_rt") or service_metrics.get("consumer_rpc_rt") or 0.0) or 0.0)
+
+        if mem > 0.88 and restart_count > 0:
+            return "memory_leak"
+        if restart_count > 2:
+            return "crash_loop"
+        if rt > 2000:
+            return "dependency_failure"
+        if cpu > 0.9:
+            return "resource_exhaustion"
+        return "unknown"
 
     # ── Prompt builders ───────────────────────────────────────────────────────
 

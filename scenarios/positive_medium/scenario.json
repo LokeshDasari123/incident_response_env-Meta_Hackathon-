@@ -1,0 +1,127 @@
+{
+  "scenario_id": "positive_medium_001",
+  "name": "Positive Control - Noise-Only Alert Storm with Healthy Customer Path",
+  "difficulty": "positive_medium",
+  "fault_type": "healthy_control",
+  "positive_control": true,
+  "description": "Metrics-exporter and log-aggregator show warning spikes from telemetry cardinality growth, but storefront traffic, checkout latency, and payments success remain healthy. Agent should avoid false escalation and choose corrective observability action.",
+  "max_steps": 12,
+  "sla_breach_step": null,
+  "services": [
+    {
+      "name": "storefront-ui",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.26,
+      "normal_mem": 0.33,
+      "incident_cpu": 0.28,
+      "incident_mem": 0.34,
+      "normal_http_rt": 110.0,
+      "incident_http_rt": 125.0,
+      "status": "healthy"
+    },
+    {
+      "name": "api-gateway",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.30,
+      "normal_mem": 0.40,
+      "incident_cpu": 0.34,
+      "incident_mem": 0.41,
+      "normal_http_rt": 45.0,
+      "incident_http_rt": 60.0,
+      "status": "healthy"
+    },
+    {
+      "name": "payments-api",
+      "is_root_cause": false,
+      "is_stateful": false,
+      "normal_cpu": 0.32,
+      "normal_mem": 0.42,
+      "incident_cpu": 0.35,
+      "incident_mem": 0.43,
+      "normal_consumer_rpc_rt": 20.0,
+      "incident_consumer_rpc_rt": 24.0,
+      "status": "healthy"
+    },
+    {
+      "name": "metrics-exporter",
+      "is_root_cause": true,
+      "is_stateful": false,
+      "normal_cpu": 0.19,
+      "normal_mem": 0.29,
+      "incident_cpu": 0.88,
+      "incident_mem": 0.36,
+      "status": "degraded",
+      "note": "Cardinality spike from temporary label explosion."
+    },
+    {
+      "name": "log-aggregator",
+      "is_root_cause": false,
+      "is_red_herring": true,
+      "is_stateful": true,
+      "normal_cpu": 0.23,
+      "normal_mem": 0.44,
+      "incident_cpu": 0.27,
+      "incident_mem": 0.91,
+      "status": "degraded",
+      "red_herring_reason": "Error-label burst causes temporary memory pressure in logs pipeline only."
+    }
+  ],
+  "topology": [
+    {
+      "upstream": "storefront-ui",
+      "downstream": "api-gateway",
+      "rpc_type": "http",
+      "avg_rt_ms": 45.0
+    },
+    {
+      "upstream": "api-gateway",
+      "downstream": "payments-api",
+      "rpc_type": "rpc",
+      "avg_rt_ms": 20.0
+    },
+    {
+      "upstream": "payments-api",
+      "downstream": "metrics-exporter",
+      "rpc_type": "metrics",
+      "avg_rt_ms": 12.0
+    }
+  ],
+  "alerts": [
+    {
+      "alert_id": "ALT-PM-001",
+      "service": "metrics-exporter",
+      "metric": "cpu_utilization",
+      "current_value": 0.88,
+      "threshold": 0.80,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": false
+    },
+    {
+      "alert_id": "ALT-PM-002",
+      "service": "log-aggregator",
+      "metric": "memory_utilization",
+      "current_value": 0.91,
+      "threshold": 0.85,
+      "severity": "warning",
+      "fired_at_step": 0,
+      "is_red_herring": true
+    }
+  ],
+  "timeline": [
+    {
+      "step": 0,
+      "event_type": "telemetry_spike",
+      "service": "metrics-exporter",
+      "description": "Temporary label-cardinality burst started after dashboard rollout."
+    },
+    {
+      "step": 2,
+      "event_type": "kpi_check",
+      "service": "storefront-ui",
+      "description": "Checkout and payment success rates remain stable."
+    }
+  ]
+}

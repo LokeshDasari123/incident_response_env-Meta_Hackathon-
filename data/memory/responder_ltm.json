@@ -2,8 +2,8 @@
   "fault_patterns": {
     "medium": {
       "unknown": {
-        "hits": 29,
-        "weight": 0.669,
+        "hits": 30,
+        "weight": 0.6598,
         "best_action": "escalate",
         "best_reward": 0.675
       }
@@ -24,17 +24,25 @@
         "best_reward": 0.745
       },
       "memory_leak": {
-        "hits": 1,
-        "weight": 0.9862,
+        "hits": 2,
+        "weight": 0.9726,
         "best_action": "restart_service",
         "best_reward": 0.795
+      }
+    },
+    "positive_medium": {
+      "unknown": {
+        "hits": 2,
+        "weight": 0.9726,
+        "best_action": "investigate_further",
+        "best_reward": 0.325
       }
     }
   },
   "remediation_stats": {
     "unknown": {
       "investigate_further": {
-        "attempts": 55,
+        "attempts": 58,
         "successes": 0
       },
       "escalate": {
@@ -44,8 +52,8 @@
     },
     "memory_leak": {
       "restart_service": {
-        "attempts": 1,
-        "successes": 1
+        "attempts": 2,
+        "successes": 2
       }
     }
   },
@@ -56,20 +64,20 @@
         "avg_reward": 0.3402
       },
       "fast": {
-        "count": 6.0,
-        "avg_reward": 0.4018
+        "count": 9.0,
+        "avg_reward": 0.3817
       }
     },
     "low": {
       "fast": {
-        "count": 2.0,
-        "avg_reward": 0.77
+        "count": 3.0,
+        "avg_reward": 0.761
       }
     }
   },
   "red_herring_seen": {
-    "unknown": 56
+    "unknown": 60
   },
-  "total_episodes": 120,
-  "saved_at": "2026-04-25T11:55:49Z"
+  "total_episodes": 130,
+  "saved_at": "2026-04-26T04:02:43Z"
 }

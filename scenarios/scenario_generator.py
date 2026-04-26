@@ -146,6 +146,24 @@ NOISE_PROFILES: Dict[str, Dict[str, Any]] = {
         "randomize_rh_severity":  True,
         "correlated_noise":       True,
     },
+    "positive_easy": {
+        "metric_jitter_pct":      0.05,
+        "alert_jitter_pct":       0.05,
+        "latency_jitter_pct":     0.06,
+        "extra_red_herrings":     0,
+        "shuffle_timeline":       True,
+        "randomize_rh_severity":  False,
+        "correlated_noise":       False,
+    },
+    "positive_medium": {
+        "metric_jitter_pct":      0.08,
+        "alert_jitter_pct":       0.08,
+        "latency_jitter_pct":     0.10,
+        "extra_red_herrings":     1,
+        "shuffle_timeline":       True,
+        "randomize_rh_severity":  True,
+        "correlated_noise":       False,
+    },
 }
 
 

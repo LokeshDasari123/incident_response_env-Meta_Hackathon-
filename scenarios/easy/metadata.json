@@ -20,7 +20,7 @@
     "root_cause_type": {
       "exact_match": "misconfiguration",
       "partial_credit": ["dependency_failure"],
-      "weight": 0.0
+      "weight": 0.10
     },
     "severity": {
       "exact_match": "P0",
@@ -30,14 +30,14 @@
     "affected_services": {
       "required": ["payments-db", "payments-api", "checkout-ui"],
       "penalize_if_includes": ["worker-node-4"],
-      "weight": 0.0
+      "weight": 0.05
     },
     "remediation_action": {
       "full_credit": ["fix_config"],
       "partial_credit": {"rollback": 0.7, "restart_service": 0.3},
       "zero_credit": ["scale_up", "flush_cache", "investigate_further"],
       "penalty": ["reroute_traffic"],
-      "weight": 0.25
+      "weight": 0.20
     },
     "stakeholder_message": {
       "required": true,
@@ -47,7 +47,7 @@
     "speed_bonus": {
       "full_bonus_within_steps": 4,
       "half_bonus_within_steps": 7,
-      "weight": 0.10
+      "weight": 0.05
     }
   },
   "expected_scores": {

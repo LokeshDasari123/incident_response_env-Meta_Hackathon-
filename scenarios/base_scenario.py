@@ -133,6 +133,13 @@ class BaseScenario(ABC):
     def get_red_herring_services(self) -> List[str]:
         return self.ground_truth.get("red_herring_services", [])
 
+    def _is_positive_control(self) -> bool:
+        """Whether this scenario is a healthy-control / non-incident track."""
+        return bool(
+            self._scenario.get("positive_control", False)
+            or self.ground_truth.get("no_incident", False)
+        )
+
     # ── Progressive Observation Methods ───────────────────────────────────────
     # These enable observations that evolve over time: the incident starts at
     # the root cause and cascades outward through the topology. Each service
@@ -229,6 +236,32 @@ class BaseScenario(ABC):
         - Indirect dependents (2+ hops): delayed degradation
         - Red herrings: always show their incident values (static noise)
         """
+        if self._is_positive_control():
+            metrics = {}
+            for svc in self.services:
+                name = svc["name"]
+                is_noise = bool(svc.get("is_red_herring", False))
+
+                cpu = svc.get("incident_cpu", svc.get("normal_cpu", 0.3)) if is_noise else svc.get("normal_cpu", 0.3)
+                mem = svc.get("incident_mem", svc.get("normal_mem", 0.4)) if is_noise else svc.get("normal_mem", 0.4)
+                http_rt = svc.get("incident_http_rt", svc.get("normal_http_rt")) if is_noise else svc.get("normal_http_rt")
+                consumer_rpc_rt = svc.get("incident_consumer_rpc_rt", svc.get("normal_consumer_rpc_rt")) if is_noise else svc.get("normal_consumer_rpc_rt")
+                provider_rpc_rt = svc.get("incident_provider_rpc_rt", svc.get("normal_provider_rpc_rt")) if is_noise else svc.get("normal_provider_rpc_rt")
+
+                status = svc.get("status", "healthy")
+                metrics[name] = {
+                    "cpu_utilization":    round(cpu, 4) if cpu is not None else None,
+                    "memory_utilization": round(mem, 4) if mem is not None else None,
+                    "http_rt":            http_rt,
+                    "consumer_rpc_rt":    consumer_rpc_rt,
+                    "provider_rpc_rt":    provider_rpc_rt,
+                    "is_healthy":         status in ("healthy", "stable"),
+                    "restart_count":      svc.get("restart_count", 0),
+                    "status":             status,
+                    "error_rate":         0.02 if is_noise else 0.0,
+                }
+            return metrics
+
         cascade_order = self._compute_cascade_order()
         metrics = {}
 
@@ -303,6 +336,13 @@ class BaseScenario(ABC):
         - Red herring alerts: always visible (they're independent noise)
         - Internal flags (is_red_herring) are stripped from output
         """
+        if self._is_positive_control():
+            return [
+                {k: v for k, v in alert.items() if k != "is_red_herring"}
+                for alert in self.alerts
+                if alert.get("fired_at_step", 0) <= step
+            ]
+
         cascade_order = self._compute_cascade_order()
         visible = []
 
@@ -346,6 +386,24 @@ class BaseScenario(ABC):
 
         Structure (edges, services) stays constant — only latencies evolve.
         """
+        if self._is_positive_control():
+            result = []
+            service_map = {s["name"]: s for s in self.services}
+            for edge in self.topology:
+                downstream = edge["downstream"]
+                avg_lat = edge["avg_rt_ms"]
+                ds = service_map.get(downstream, {})
+                is_noise = bool(ds.get("is_red_herring", False))
+                current_lat = round(avg_lat * (1.25 if is_noise else 1.02), 2)
+                result.append({
+                    "upstream_service":   edge["upstream"],
+                    "downstream_service": edge["downstream"],
+                    "rpc_type":           edge["rpc_type"],
+                    "avg_latency_ms":     avg_lat,
+                    "current_latency_ms": current_lat,
+                })
+            return result
+
         cascade_order = self._compute_cascade_order()
         result = []
 
@@ -389,6 +447,11 @@ class BaseScenario(ABC):
           - "cascade_detected" when a new service starts degrading
           - "escalation_warning" at the episode midpoint
         """
+        if self._is_positive_control():
+            events = [e for e in self.timeline if e.get("step", 0) <= step]
+            events.sort(key=lambda e: e.get("step", 0))
+            return events
+
         cascade_order = self._compute_cascade_order()
 
         # 1. Static events that have fired by this step
@@ -490,11 +553,33 @@ class ExpertScenario(BaseScenario):
         return True
 
 
+class PositiveEasyScenario(BaseScenario):
+    def __init__(self):
+        super().__init__("positive_easy")
+
+    def validate(self) -> bool:
+        assert len(self.services) >= 2
+        assert self.ground_truth["root_cause_service"]
+        return True
+
+
+class PositiveMediumScenario(BaseScenario):
+    def __init__(self):
+        super().__init__("positive_medium")
+
+    def validate(self) -> bool:
+        assert len(self.services) >= 3
+        assert self.ground_truth["root_cause_service"]
+        return True
+
+
 SCENARIO_MAP = {
     "easy":   EasyScenario,
     "medium": MediumScenario,
     "hard":   HardScenario,
     "expert": ExpertScenario,
+    "positive_easy": PositiveEasyScenario,
+    "positive_medium": PositiveMediumScenario,
 }
 
 

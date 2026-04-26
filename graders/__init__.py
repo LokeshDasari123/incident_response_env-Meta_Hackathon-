@@ -2,12 +2,16 @@ from graders.easy_grader   import EasyGrader
 from graders.medium_grader import MediumGrader
 from graders.hard_grader   import HardGrader
 from graders.expert_grader import ExpertGrader
+from graders.positive_easy_grader import PositiveEasyGrader
+from graders.positive_medium_grader import PositiveMediumGrader
 
 GRADER_MAP = {
     "easy":   EasyGrader,
     "medium": MediumGrader,
     "hard":   HardGrader,
     "expert": ExpertGrader,
+    "positive_easy": PositiveEasyGrader,
+    "positive_medium": PositiveMediumGrader,
 }
 
 def load_grader(task_id: str):
@@ -15,4 +19,13 @@ def load_grader(task_id: str):
         raise ValueError(f"Unknown task_id '{task_id}'")
     return GRADER_MAP[task_id]()
 
-__all__ = ["EasyGrader", "MediumGrader", "HardGrader", "ExpertGrader", "GRADER_MAP", "load_grader"]
+__all__ = [
+    "EasyGrader",
+    "MediumGrader",
+    "HardGrader",
+    "ExpertGrader",
+    "PositiveEasyGrader",
+    "PositiveMediumGrader",
+    "GRADER_MAP",
+    "load_grader",
+]
