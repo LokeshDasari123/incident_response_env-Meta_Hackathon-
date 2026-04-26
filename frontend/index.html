@@ -1565,26 +1565,26 @@
             </div>
             <div class="form-group">
               <span class="form-label">Log / Email Body</span>
-              <textarea id="logBody" rows="14" placeholder="Paste alert email or log excerpt here…
-
-Example:
-[ERROR] java.lang.OutOfMemoryError: Java heap space
-[ERROR] payments-db: Connection pool 0/100 — exhausted  
-[ERROR] payments-api: timeout after 30000ms
-[WARN]  checkout-ui: HTTP 503 Service Unavailable
-Memory utilization: 99.1%
-Restart count: 7 in last 10 minutes"></textarea>
+              <textarea id="logBody" rows="10" placeholder="Paste alert email or log excerpt here..."></textarea>
             </div>
-            <button class="btn btn-primary" onclick="runAnalysis()">⚡ RUN RCA</button>
+            <div class="flex gap8">
+              <button class="btn btn-primary" id="btnRunRCA" onclick="runAnalysis()">⚡ RUN RCA</button>
+              <button class="btn btn-secondary" onclick="clearAnalysis()">✕ CLEAR</button>
+            </div>
           </div>
         </div>
-        <div class="card" id="analysisOut">
-          <div class="card-head"><span class="card-title">Analysis Result</span></div>
-          <div class="text-muted" style="padding:60px 20px;text-align:center;font-size:12px;line-height:1.8">
-            Paste log content and click RUN RCA.<br>
-            <span style="font-size:10px">Supports email bodies, log excerpts, and PagerDuty alerts.</span>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Live Pipeline Logs</span>
+            <span class="mono text-muted" style="font-size:9px" id="logStatus">Waiting...</span>
+          </div>
+          <div class="terminal" id="pipelineTerm" style="height:280px;overflow-y:auto;">
+            <div class="tl"><span class="ts">—</span><span class="t-info text-muted">Ready to receive alerts.</span></div>
           </div>
         </div>
+      </div>
+      <div class="mt16 card hidden" id="analysisOut">
+        <!-- populated dynamically -->
       </div>
     </div>
 
@@ -2250,109 +2250,188 @@ Restart count: 7 in last 10 minutes"></textarea>
     // ════════════════════════════════════════════════════
     // ANALYZE TAB
     // ════════════════════════════════════════════════════
+    let pipelineEventSource = null;
+
+    function connectPipelineLogs() {
+      if (pipelineEventSource) {
+        pipelineEventSource.close();
+      }
+      pipelineEventSource = new EventSource('/incident-logs/stream');
+      const term = document.getElementById('pipelineTerm');
+      
+      pipelineEventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'heartbeat') return;
+
+        const ts = new Date(data.timestamp).toLocaleTimeString();
+        let colorClass = 'text-muted';
+        let icon = 'ℹ️';
+
+        switch (data.level) {
+          case 'alert': colorClass = 'text-fire'; icon = '🚨'; break;
+          case 'success': colorClass = 'text-volt'; icon = '✅'; break;
+          case 'error': colorClass = 'text-red'; icon = '❌'; break;
+          case 'debate': colorClass = 'text-purple'; icon = '⚔️'; break;
+          case 'warn': colorClass = 'text-amber'; icon = '⚠️'; break;
+          default: colorClass = 'text-cyan'; icon = '📋'; break;
+        }
+
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'tl';
+        msgDiv.innerHTML = `<span class="ts">${ts}</span><span class="t-info ${colorClass}">${icon} [${data.source}] ${data.message}</span>`;
+        if (term) {
+          term.appendChild(msgDiv);
+          term.scrollTop = term.scrollHeight;
+        }
+
+        // If incident resolved, try to fetch the latest tracking info to update UI
+        if (data.level === 'success' && data.message.includes('Incident resolved')) {
+          setTimeout(() => fetchIncidentTracking(data.data.incident_id), 1000);
+        }
+      };
+
+      pipelineEventSource.onopen = () => {
+        const ls = document.getElementById('logStatus');
+        if (ls) {
+          ls.textContent = 'Live';
+          ls.className = 'mono text-volt';
+          ls.style.fontSize = '9px';
+        }
+      };
+
+      pipelineEventSource.onerror = () => {
+        const ls = document.getElementById('logStatus');
+        if (ls) {
+          ls.textContent = 'Disconnected';
+          ls.className = 'mono text-red';
+          ls.style.fontSize = '9px';
+        }
+      };
+    }
+
+    function clearAnalysis() {
+      document.getElementById('logBody').value = '';
+      document.getElementById('emailSubj').value = '';
+      document.getElementById('analysisOut').innerHTML = '';
+      document.getElementById('analysisOut').classList.add('hidden');
+      document.getElementById('pipelineTerm').innerHTML = '<div class="tl"><span class="ts">—</span><span class="t-info text-muted">Ready to receive alerts.</span></div>';
+    }
+
     async function runAnalysis() {
       const body = document.getElementById('logBody').value;
       const subj = document.getElementById('emailSubj').value;
-      const out = document.getElementById('analysisOut');
-      if (!body.trim()) {
-        out.innerHTML = '<div class="card-head"><span class="card-title">Analysis Result</span></div><div class="text-muted" style="padding:24px;text-align:center">Please enter log content first.</div>';
+      
+      if (!subj.trim() && !body.trim()) {
+        alert("Please provide an email subject or log body to analyze.");
         return;
       }
-      out.innerHTML = '<div class="card-head"><span class="card-title">Analysis Result</span></div><div class="text-cyan" style="padding:24px;text-align:center;font-family:var(--mono)">⟳ Running RCA…</div>';
-      await new Promise(r => setTimeout(r, 700));
 
-      // Signal extraction
-      const KNOWN = ['payments-db', 'payments-api', 'auth-service', 'api-gateway', 'storefront-ui', 'order-service', 'cache-service', 'user-service', 'checkout-ui', 'notification-svc'];
-      const ERR_KWS = ['oom', 'crash', 'timeout', 'failed', 'nxdomain', '503', '502', '504', 'refused', 'exception', 'error', 'heap', 'exhausted', 'leak'];
-      const bodyL = body.toLowerCase();
-      const signals = {};
-      KNOWN.forEach(s => {
-        if (bodyL.includes(s)) {
-          let score = 0.25;
-          const idx = bodyL.indexOf(s);
-          const ctx = bodyL.slice(Math.max(0, idx - 150), idx + 150);
-          ERR_KWS.forEach(kw => { if (ctx.includes(kw)) score += 0.12; });
-          signals[s] = Math.min(0.99, parseFloat(score.toFixed(2)));
+      document.getElementById('pipelineTerm').innerHTML = '<div class="tl"><span class="ts">—</span><span class="t-info text-muted">Triggering RCA pipeline...</span></div>';
+      document.getElementById('analysisOut').classList.add('hidden');
+      document.getElementById('btnRunRCA').disabled = true;
+      document.getElementById('btnRunRCA').textContent = '⏳ RUNNING...';
+
+      try {
+        const res = await fetch('/trigger-incident', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'manual_ui',
+            subject: subj || '[ALERT] Manual UI Trigger',
+            body: body
+          })
+        });
+
+        if (!res.ok) throw new Error("API failed");
+        
+        const term = document.getElementById('pipelineTerm');
+        term.innerHTML += `<div class="tl"><span class="ts">${new Date().toLocaleTimeString()}</span><span class="t-info text-cyan">Pipeline triggered successfully. Awaiting results...</span></div>`;
+
+      } catch (e) {
+        console.error(e);
+        document.getElementById('pipelineTerm').innerHTML += `<div class="tl"><span class="ts">${new Date().toLocaleTimeString()}</span><span class="t-info text-red">Failed to trigger API: ${e.message}</span></div>`;
+      } finally {
+        document.getElementById('btnRunRCA').disabled = false;
+        document.getElementById('btnRunRCA').textContent = '⚡ RUN RCA';
+      }
+    }
+
+    async function fetchIncidentTracking(incidentId) {
+      try {
+        const res = await fetch('/incidents/tracking');
+        const data = await res.json();
+        const inc = data.incidents.find(i => i.incident_id === incidentId);
+        
+        if (inc) {
+          renderAnalysisResult(inc);
         }
-      });
+      } catch (e) {
+        console.error("Failed to fetch tracking details", e);
+      }
+    }
 
-      const rc = Object.keys(signals).length
-        ? Object.entries(signals).sort((a, b) => b[1] - a[1])[0][0]
-        : 'unknown';
-      const conf = signals[rc] || 0.10;
+    function renderAnalysisResult(inc) {
+      const out = document.getElementById('analysisOut');
+      out.classList.remove('hidden');
 
-      let ft = 'misconfiguration';
-      if (bodyL.includes('oom') || bodyL.includes('heap') || bodyL.includes('memory')) ft = 'memory_leak';
-      else if (bodyL.includes('nxdomain') || bodyL.includes('dns')) ft = 'network_partition';
-      else if (bodyL.includes('crash') || bodyL.includes('restart')) ft = 'crash_loop';
-      else if (bodyL.includes('cpu') || bodyL.includes('exhausted')) ft = 'resource_exhaustion';
+      const fr = inc.final_result || {};
+      const rc = fr.root_cause || 'unknown';
+      const ft = fr.fault_type || 'unknown';
+      const sev = fr.severity || 'P2';
+      const act = fr.remediation || 'investigate';
+      const conf = inc.final_confidence || 0;
+      const winningModel = inc.winning_model || 'Unknown';
 
-      const sev = conf > 0.55 && (ft === 'memory_leak' || ft === 'crash_loop') ? 'P0' : conf > 0.35 ? 'P1' : 'P2';
-      const acts = { memory_leak: 'restart_service', crash_loop: 'restart_service', network_partition: 'fix_config', misconfiguration: 'fix_config', resource_exhaustion: 'scale_up' };
-      const act = acts[ft];
+      const debateHtml = inc.debate_rounds.length > 0 
+        ? inc.debate_rounds.map(d => `
+            <div style="margin-bottom:8px;padding:8px;background:rgba(255,255,255,0.02);border-radius:4px;border-left:2px solid var(--purple)">
+              <div class="mono text-purple" style="font-size:10px;margin-bottom:4px">Strategy: ${d.strategy}</div>
+              <div class="text-muted" style="font-size:11px;font-style:italic">"${d.challenge}"</div>
+            </div>`).join('')
+        : '<div class="text-muted" style="font-size:11px">No debate rounds occurred.</div>';
 
-      const sigHtml = Object.entries(signals)
-        .sort((a, b) => b[1] - a[1])
-        .map(([s, v]) => `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
-      <span class="mono" style="font-size:11px">${s}</span>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:90px;height:3px;background:var(--border);border-radius:2px">
-          <div style="width:${Math.min(100, v * 100)}%;height:100%;background:var(--electric);border-radius:2px"></div>
+      const interactionsHtml = inc.models.map(m => `
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <span class="mono" style="font-size:11px">[${m.role}] ${m.model}</span>
+          <span class="mono text-cyan" style="font-size:11px">${m.action}</span>
         </div>
-        <span class="mono text-muted" style="font-size:10px">${(v * 100).toFixed(0)}%</span>
-      </div>
-    </div>`).join('') || '<div class="text-muted" style="font-size:11px">No known services detected</div>';
-
-      const incToAdd = {
-        id: `ANA-${Date.now().toString(36).toUpperCase()}`,
-        timestamp: new Date().toISOString(),
-        analysis: {
-          root_cause_service: rc, root_cause_type: ft, severity: sev,
-          affected_services: Object.keys(signals).slice(0, 5),
-          confidence: parseFloat(conf.toFixed(2)),
-          reasoning: `Log analysis: ${rc} cited with error keywords in context. Pattern matches ${ft}.`,
-          stakeholder_message: `[${sev}] ${rc} (${ft}) detected via log analysis. Cascade risk. Action: ${act?.replace(/_/g, ' ')}. ETA ~10 min.`,
-        },
-        remediation: { action: act, status: 'pending_approval', requires_approval: true, message: `⚠️ Approval: ${act?.replace(/_/g, ' ')} on ${rc}`, runbook: [`kubectl rollout restart deployment/${rc} -n production`] },
-      };
-      addIncident(incToAdd);
+      `).join('');
 
       out.innerHTML = `
-    <div class="card-head">
-      <span class="card-title">Analysis Result</span>
-      <span class="sev sev-${sev}">${sev}</span>
-    </div>
-    <div class="card mb12">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-        <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">ROOT CAUSE</span>
-        <span class="mono text-cyan fw600" style="font-size:14px">${rc}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-        <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">FAULT TYPE</span>
-        <span class="mono">${ft}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:12px">
-        <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">RECOMMENDED ACTION</span>
-        <span class="mono text-volt fw600">${act?.replace(/_/g, ' ')}</span>
-      </div>
-      <div class="conf-row">
-        <span class="mono text-muted" style="font-size:9px;width:70px">CONFIDENCE</span>
-        <div class="conf-track"><div class="conf-fill" style="width:${conf * 100}%"></div></div>
-        <span class="mono fw600" style="font-size:13px">${(conf * 100).toFixed(0)}%</span>
-      </div>
-    </div>
-    <div class="card mb12">
-      <div class="card-title" style="margin-bottom:10px">SERVICE SIGNALS</div>
-      ${sigHtml}
-    </div>
-    <div class="card">
-      <div class="card-title" style="margin-bottom:8px">STAKEHOLDER MESSAGE</div>
-      <div style="font-size:11px;line-height:1.8;border-left:2px solid var(--amber);padding-left:12px;color:var(--text)">
-        [${sev}] ${rc} (${ft}) detected. Cascade to ${Object.keys(signals).length} services.
-        Immediate: ${act?.replace(/_/g, ' ')} on ${rc}. ETA ~10 min.
-      </div>
-    </div>`;
+        <div class="card-head">
+          <span class="card-title">Incident Resolution: ${inc.incident_id}</span>
+          <span class="sev sev-${sev}">${sev}</span>
+        </div>
+        <div class="g2 mb12">
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+              <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">ROOT CAUSE</span>
+              <span class="mono text-cyan fw600" style="font-size:14px">${rc}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+              <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">FAULT TYPE</span>
+              <span class="mono">${ft}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+              <span class="mono text-muted" style="font-size:9px;letter-spacing:2px">RECOMMENDED ACTION</span>
+              <span class="mono text-volt fw600">${act?.replace(/_/g, ' ')}</span>
+            </div>
+            <div class="conf-row">
+              <span class="mono text-muted" style="font-size:9px;width:70px">CONFIDENCE</span>
+              <div class="conf-track"><div class="conf-fill" style="width:${conf * 100}%"></div></div>
+              <span class="mono fw600" style="font-size:13px">${(conf * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div style="padding-left:16px;border-left:1px solid var(--border)">
+             <div class="card-title" style="margin-bottom:8px;font-size:10px">WINNING MODEL</div>
+             <div class="mono text-volt mb12" style="font-size:12px">${winningModel}</div>
+             <div class="card-title" style="margin-bottom:8px;font-size:10px">MODEL INTERACTIONS</div>
+             ${interactionsHtml}
+          </div>
+        </div>
+        <div class="card-title" style="margin-bottom:8px;margin-top:16px;font-size:10px">DEBATE HISTORY</div>
+        <div>${debateHtml}</div>
+      `;
     }
 
     // ════════════════════════════════════════════════════
@@ -2448,6 +2527,7 @@ Restart count: 7 in last 10 minutes"></textarea>
       src.onerror = () => setTimeout(connectSSE, 5000);
     }
     connectSSE();
+    connectPipelineLogs();
   </script>
 </body>
 

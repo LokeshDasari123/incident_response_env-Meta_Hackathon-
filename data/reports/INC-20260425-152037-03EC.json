@@ -1,0 +1,81 @@
+{
+  "report_id": "INC-20260425-152037-03EC",
+  "generated_at": "2026-04-25T15:20:37.685846",
+  "incident": {
+    "id": "INC-20260425-152037-03EC",
+    "root_cause": "unknown",
+    "fault_type": "unknown",
+    "severity": "P2",
+    "affected": [],
+    "confidence": 0.0,
+    "reasoning": "LLM failed or API key not configured.",
+    "stakeholder_msg": "LLM analysis failed. Investigating manually."
+  },
+  "remediation": {
+    "action": "investigate_further",
+    "status": "pending_approval",
+    "message": "\u26a0\ufe0f Approval required: investigate further on unknown",
+    "runbook": [
+      "Investigate unknown manually. Fault: unknown"
+    ],
+    "executed_at": null
+  },
+  "metrics_at_detection": {
+    "storefront-ui": {
+      "cpu": 0.3286,
+      "mem": 0.4848,
+      "rt": 126.7609,
+      "status": "healthy"
+    },
+    "api-gateway": {
+      "cpu": 0.322,
+      "mem": 0.3909,
+      "rt": 39.0818,
+      "status": "healthy"
+    },
+    "order-service": {
+      "cpu": 0.2597,
+      "mem": 0.4478,
+      "rt": null,
+      "status": "healthy"
+    },
+    "cache-service": {
+      "cpu": 0.1974,
+      "mem": 0.5227,
+      "rt": null,
+      "status": "healthy"
+    },
+    "payments-db": {
+      "cpu": 0.4062,
+      "mem": 0.99,
+      "rt": null,
+      "status": "failing"
+    },
+    "network-switch-03": {
+      "cpu": 0.3,
+      "mem": 0.4,
+      "rt": null,
+      "status": "failing"
+    },
+    "worker-node-7": {
+      "cpu": 0.9671,
+      "mem": 0.4,
+      "rt": null,
+      "status": "failing"
+    },
+    "monitoring-agent": {
+      "cpu": 0.9094,
+      "mem": 0.3119,
+      "rt": null,
+      "status": "failing"
+    },
+    "metrics-exporter": {
+      "cpu": 0.8985,
+      "mem": 0.3745,
+      "rt": null,
+      "status": "failing"
+    }
+  },
+  "email_alert": null,
+  "alert_count": 6
+}

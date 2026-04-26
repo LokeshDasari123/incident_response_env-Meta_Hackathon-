@@ -168,10 +168,15 @@ class MetricStore:
 
 
 # ── Root Cause Analyzer ───────────────────────────────────────────────────────
+import os
+import json
+import time
+import textwrap
+from openai import OpenAI
+
 class RootCauseAnalyzer:
     """
-    Analyzes metrics + alerts to identify root cause.
-    Uses trained incident env grader rubric logic.
+    Analyzes metrics + alerts to identify root cause using a real LLM.
     Supports email body as additional log context.
     """
 
@@ -183,66 +188,115 @@ class RootCauseAnalyzer:
         email_body: Optional[str] = None,
         log_text: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Full root cause analysis pipeline."""
-
-        # 1. Score each service
-        scores = self._score_services(metrics, alerts)
-
-        # 2. Parse email/log for extra signals
-        extra_signals = {}
-        if email_body or log_text:
-            extra_signals = self._parse_text_signals(email_body or log_text or "")
-
-        # 3. Apply extra signal boost
-        for svc, boost in extra_signals.items():
-            if svc in scores:
-                scores[svc] += boost
-
-        # 4. Pick root cause
-        if not scores:
-            return self._unknown_result()
-
-        rc   = max(scores, key=scores.get)
-        conf = min(0.99, scores[rc] / max(scores.values()) * 0.95)
-
-        # 5. Infer fault type
-        rc_m      = metrics.get(rc, {})
-        fault_type = self._infer_fault_type(rc_m, alerts, rc)
-
-        # 6. Collect cascade chain
-        affected = self._build_cascade(rc, topology or [], metrics)
-
-        # 7. Severity
-        severity = "P0" if len(affected) >= 3 or any(
-            a.get("severity") == "critical" for a in alerts if a.get("service") == rc
-        ) else "P1"
-
-        # 8. Remediation
-        action = self._infer_action(fault_type, rc_m)
-
-        # 9. Build stakeholder message
-        msg = (
-            f"[{severity}] {rc} ({fault_type}) is causing cascade across "
-            f"{len(affected)} services. Immediate action: {action.replace('_',' ')}. "
-            f"ETA to resolution: ~10 minutes."
-        )
-
-        return {
-            "root_cause_service":  rc,
-            "root_cause_type":     fault_type,
-            "severity":            severity,
-            "affected_services":   affected,
-            "remediation_action":  action,
-            "stakeholder_message": msg,
-            "confidence":          round(conf, 2),
-            "scores":              {k: round(v, 3) for k, v in scores.items()},
-            "extra_signals":       extra_signals,
-            "reasoning": (
-                f"Service scoring: {rc}={scores[rc]:.2f} (highest). "
-                f"Fault pattern: {fault_type}. "
-                f"Cascade chain: {' → '.join(affected)}."
-            ),
+        """Full root cause analysis pipeline using LLM."""
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+            
+        api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "")
+        api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+        model_name = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+        
+        fallback = {
+            "root_cause_service": "unknown", "root_cause_type": "unknown",
+            "severity": "P2", "affected_services": [],
+            "remediation_action": "investigate_further",
+            "stakeholder_message": "LLM analysis failed. Investigating manually.",
+            "confidence": 0.0, "reasoning": "LLM failed or API key not configured."
         }
+
+        if not api_key:
+            print("[RootCauseAnalyzer] No API_KEY configured. Using fallback.", flush=True)
+            return fallback
+
+        client = OpenAI(api_key=api_key, base_url=api_base)
+
+        system_prompt = textwrap.dedent("""
+        You are an expert SRE triaging a production incident.
+        
+        APPROACH:
+        1. Read the call graph topology — traverse INWARD from the edge service
+        2. The root cause is the DEEPEST service showing abnormal metrics
+        3. List ONLY services in the cascade chain in affected_services — NEVER include red herrings
+        4. Red herrings = worker-node-*, network-switch-*, cache-service with only CPU spikes, unrelated batch jobs — EXCLUDE from affected_services
+        
+        FAULT TYPE RULES:
+        - misconfiguration = config_change in timeline + RT spike immediately after
+        - memory_leak = memory_utilization > 0.85 AND restart_count > 0
+        - network_partition = providerRPC_MCR drops to 0 or near-zero
+        - crash_loop = restart_count > 2 AND service cycling
+        
+        SEVERITY RULES (CRITICAL — follow strictly):
+        - P0 = ANY cascading failure affecting 2+ services OR payment/checkout impacted OR config_change caused outage
+        - P1 = Single service degraded with user-facing impact
+        - P2 = Warning alerts, no user impact yet
+        
+        REMEDIATION RULES (CRITICAL):
+        - memory_leak OR crash_loop -> restart_service
+        - misconfiguration -> rollback
+        - resource_exhaustion -> scale_up
+        - network_partition -> fix_config
+        
+        OUTPUT FORMAT (Strict JSON only, no markdown blocks, no conversational text):
+        {
+          "root_cause_service": "string",
+          "root_cause_type": "string (memory_leak|misconfiguration|network_partition|crash_loop|resource_exhaustion|dependency_failure)",
+          "severity": "string (P0|P1|P2)",
+          "affected_services": ["list", "of", "strings"],
+          "remediation_action": "string",
+          "stakeholder_message": "string",
+          "reasoning": "string",
+          "confidence": 0.0 to 1.0 (float)
+        }
+        """)
+
+        user_prompt = textwrap.dedent(f"""
+        === ALERTS ({len(alerts)}) ===
+        {json.dumps(alerts, indent=2)}
+        
+        === METRICS ===
+        {json.dumps(metrics, indent=2)}
+        
+        === CALL GRAPH TOPOLOGY ===
+        {json.dumps(topology or [], indent=2)}
+        
+        === EMAIL/LOG BODY ===
+        {email_body or log_text or "None"}
+        
+        Identify the root cause strictly following the rules. Return JSON only.
+        """).strip()
+
+        for attempt in range(1, 3):
+            try:
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.1,
+                    max_tokens=512,
+                )
+                text = (resp.choices[0].message.content or "").strip()
+                if "```" in text:
+                    parts = text.split("```")
+                    text = parts[1] if len(parts) > 1 else parts[0]
+                    if text.startswith("json"):
+                        text = text[4:]
+                    text = text.strip()
+                
+                result = json.loads(text)
+                if "confidence" not in result:
+                    result["confidence"] = 0.8  # Fallback if LLM forgets
+                return result
+
+            except Exception as e:
+                print(f"[RootCauseAnalyzer] LLM error on attempt {attempt}: {e}", flush=True)
+                time.sleep(2)
+
+        return fallback
 
     def _score_services(self, metrics: Dict, alerts: List[Dict]) -> Dict[str, float]:
         scores: Dict[str, float] = {}
@@ -643,8 +697,8 @@ class ReportGenerator:
         ]
         for svc, m in r.get("metrics_at_detection", {}).items():
             lines.append(
-                f"| {svc} | {m['cpu']*100:.0f}% | {m['mem']*100:.0f}% | "
-                f"{m['rt']:.0f}ms | {m['status']} |"
+                f"| {svc} | {m.get('cpu_utilization', 0)*100:.0f}% | {m.get('memory_utilization', 0)*100:.0f}% | "
+                f"{m.get('http_rt', 0):.0f}ms | {m.get('status', 'unknown')} |"
             )
         return "\n".join(lines)
 

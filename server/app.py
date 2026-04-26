@@ -15,14 +15,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from envs.incident_env        import IncidentResponseEnv
 from server.environment       import handle_reset, handle_step, handle_state
 from server.session_manager   import session_manager
+from backend.email_trigger    import incident_pipeline
+from backend.circuit_breaker  import circuit_breaker
 
 # ── Training artifact paths ───────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parents[1]
@@ -453,6 +455,109 @@ async def remediate_approve(req: RemediateRequest):
         "status": "approved" if req.approved else "rejected",
         "incident_id": req.incident_id,
     }
+
+
+# ── Email Trigger + Incident Pipeline ─────────────────────────────────────────
+
+class TriggerIncidentRequest(BaseModel):
+    source: str = "email"
+    subject: str = ""
+    body: str = ""
+
+
+@app.post("/trigger-incident")
+async def trigger_incident(req: TriggerIncidentRequest, background_tasks: BackgroundTasks):
+    """
+    Trigger incident analysis from email listener or manual API call.
+    Circuit breaker limits to max 2 analysis attempts.
+    """
+    if not req.subject:
+        raise HTTPException(status_code=400, detail="Subject is required")
+
+    async def _run():
+        try:
+            await incident_pipeline.trigger_from_email(
+                subject=req.subject,
+                body=req.body,
+                source=req.source,
+            )
+        except Exception as exc:
+            logger.exception(f"Incident pipeline failed: {exc}")
+            incident_pipeline.log_queue.log(
+                f"Pipeline error: {str(exc)[:200]}",
+                level="error",
+                source="pipeline",
+            )
+
+    background_tasks.add_task(_run)
+
+    return {
+        "status": "triggered",
+        "source": req.source,
+        "subject": req.subject[:100],
+        "message": "Incident pipeline started. Monitor /incident-logs for real-time updates.",
+    }
+
+
+@app.get("/incident-logs")
+async def get_incident_logs(n: int = 100, after_id: int = 0):
+    """
+    Poll-based log endpoint — returns latest N logs.
+    Use after_id for incremental polling (only new logs since last poll).
+    """
+    logs = incident_pipeline.get_logs(n=n, after_id=after_id)
+    return {
+        "logs": logs,
+        "count": len(logs),
+        "latest_id": logs[-1]["id"] if logs else 0,
+    }
+
+
+@app.get("/incident-logs/stream")
+async def incident_log_stream(request: Request):
+    """
+    SSE (Server-Sent Events) endpoint for real-time log streaming to UI.
+    Frontend connects: const es = new EventSource('/incident-logs/stream')
+    """
+    queue = incident_pipeline.log_queue.subscribe()
+
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    entry = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(entry)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        finally:
+            incident_pipeline.log_queue.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/incidents/tracking")
+async def incidents_tracking(n: int = 20):
+    """
+    Return tracked incidents with full model interaction history.
+    Shows which models participated, debate rounds, and resolution status.
+    """
+    return {
+        "incidents": incident_pipeline.get_incidents(n),
+        "stats": incident_pipeline.get_stats(),
+        "circuit_breaker": circuit_breaker.get_all_circuits(),
+    }
+
+
+@app.get("/incidents/stats")
+async def incidents_stats():
+    """Quick stats for dashboard KPI strip."""
+    return incident_pipeline.get_stats()
 
 
 # ── WebSocket Endpoint (persistent sessions) ──────────────────────────────────
