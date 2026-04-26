@@ -1,0 +1,86 @@
+{
+  "report_id": "INC-20260425-145054-4382",
+  "generated_at": "2026-04-25T14:50:54.493181",
+  "incident": {
+    "id": "INC-20260425-145054-4382",
+    "root_cause": "payments-api",
+    "fault_type": "misconfiguration",
+    "severity": "P1",
+    "affected": [
+      "payments-api"
+    ],
+    "confidence": 0.95,
+    "reasoning": "Service scoring: payments-api=0.85 (highest). Fault pattern: misconfiguration. Cascade chain: payments-api.",
+    "stakeholder_msg": "[P1] payments-api (misconfiguration) is causing cascade across 1 services. Immediate action: fix config. ETA to resolution: ~10 minutes."
+  },
+  "remediation": {
+    "action": "fix_config",
+    "status": "pending_approval",
+    "message": "\u26a0\ufe0f Approval required: fix config on payments-api",
+    "runbook": [
+      "1. kubectl get configmap payments-api-config -o yaml > backup.yaml",
+      "2. Edit ConfigMap: kubectl edit configmap payments-api-config",
+      "3. Apply fix based on fault: misconfiguration",
+      "4. Restart pods to pick up new config: kubectl rollout restart deployment/payments-api"
+    ],
+    "executed_at": null
+  },
+  "metrics_at_detection": {
+    "storefront-ui": {
+      "cpu": 0.33,
+      "mem": 0.331,
+      "rt": 61.0,
+      "status": "healthy"
+    },
+    "api-gateway": {
+      "cpu": 0.291,
+      "mem": 0.549,
+      "rt": 66.9,
+      "status": "healthy"
+    },
+    "auth-service": {
+      "cpu": 0.367,
+      "mem": 0.274,
+      "rt": 85.7,
+      "status": "healthy"
+    },
+    "payments-api": {
+      "cpu": 0.224,
+      "mem": 0.409,
+      "rt": 116.0,
+      "status": "critical"
+    },
+    "payments-db": {
+      "cpu": 0.259,
+      "mem": 0.443,
+      "rt": 21.7,
+      "status": "healthy"
+    },
+    "order-service": {
+      "cpu": 0.349,
+      "mem": 0.295,
+      "rt": 144.9,
+      "status": "healthy"
+    },
+    "cache-service": {
+      "cpu": 0.216,
+      "mem": 0.367,
+      "rt": 89.2,
+      "status": "healthy"
+    },
+    "user-service": {
+      "cpu": 0.37,
+      "mem": 0.471,
+      "rt": 67.9,
+      "status": "healthy"
+    },
+    "notification-svc": {
+      "cpu": 0.255,
+      "mem": 0.346,
+      "rt": 81.1,
+      "status": "healthy"
+    }
+  },
+  "email_alert": null,
+  "alert_count": 1
+}

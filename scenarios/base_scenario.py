@@ -318,21 +318,11 @@ class BaseScenario(ABC):
                 )
                 continue
 
-            # Alerts that fired at step 0: always visible (pre-existing)
-            if fired_at == 0 and step >= 0:
-                visible.append(
-                    {k: v for k, v in alert.items() if k != "is_red_herring"}
-                )
-                continue
-
-            # Cascade alerts: visible from their service's onset step
+            # Calculate effective onset: max of explicitly defined fired_at and cascade onset
             onset = cascade_order.get(service)
-            if onset is not None and step >= onset:
-                visible.append(
-                    {k: v for k, v in alert.items() if k != "is_red_herring"}
-                )
-            elif onset is None:
-                # Orphan service not in topology — show immediately
+            effective_onset = max(fired_at, onset if onset is not None else 0)
+
+            if step >= effective_onset:
                 visible.append(
                     {k: v for k, v in alert.items() if k != "is_red_herring"}
                 )
