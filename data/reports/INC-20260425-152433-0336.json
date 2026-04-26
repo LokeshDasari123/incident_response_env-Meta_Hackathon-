@@ -1,0 +1,69 @@
+{
+  "report_id": "INC-20260425-152433-0336",
+  "generated_at": "2026-04-25T15:24:33.407064",
+  "incident": {
+    "id": "INC-20260425-152433-0336",
+    "root_cause": "unknown",
+    "fault_type": "unknown",
+    "severity": "P2",
+    "affected": [],
+    "confidence": 0.0,
+    "reasoning": "LLM failed or API key not configured.",
+    "stakeholder_msg": "LLM analysis failed. Investigating manually."
+  },
+  "remediation": {
+    "action": "investigate_further",
+    "status": "pending_approval",
+    "message": "\u26a0\ufe0f Approval required: investigate further on unknown",
+    "runbook": [
+      "Investigate unknown manually. Fault: unknown"
+    ],
+    "executed_at": null
+  },
+  "metrics_at_detection": {
+    "storefront-ui": {
+      "cpu": 0.2815,
+      "mem": 0.4651,
+      "rt": 119.96,
+      "status": "healthy"
+    },
+    "api-gateway": {
+      "cpu": 0.2784,
+      "mem": 0.3984,
+      "rt": 45.0745,
+      "status": "healthy"
+    },
+    "auth-service": {
+      "cpu": 0.2236,
+      "mem": 0.4026,
+      "rt": null,
+      "status": "healthy"
+    },
+    "user-service": {
+      "cpu": 0.2363,
+      "mem": 0.3948,
+      "rt": null,
+      "status": "failing"
+    },
+    "cache-service": {
+      "cpu": 0.2398,
+      "mem": 0.99,
+      "rt": null,
+      "status": "failing"
+    },
+    "worker-node-4": {
+      "cpu": 0.9418,
+      "mem": 0.7391,
+      "rt": null,
+      "status": "failing"
+    },
+    "backup-daemon": {
+      "cpu": 0.5,
+      "mem": 0.9545,
+      "rt": null,
+      "status": "failing"
+    }
+  },
+  "email_alert": null,
+  "alert_count": 3
+}

@@ -1,0 +1,51 @@
+{
+  "report_id": "INC-20260425-151807-74A8",
+  "generated_at": "2026-04-25T15:18:07.080626",
+  "incident": {
+    "id": "INC-20260425-151807-74A8",
+    "root_cause": "unknown",
+    "fault_type": "unknown",
+    "severity": "P2",
+    "affected": [],
+    "confidence": 0.0,
+    "reasoning": "LLM failed or API key not configured.",
+    "stakeholder_msg": "LLM analysis failed. Investigating manually."
+  },
+  "remediation": {
+    "action": "investigate_further",
+    "status": "pending_approval",
+    "message": "\u26a0\ufe0f Approval required: investigate further on unknown",
+    "runbook": [
+      "Investigate unknown manually. Fault: unknown"
+    ],
+    "executed_at": null
+  },
+  "metrics_at_detection": {
+    "checkout-ui": {
+      "cpu": 0.2951,
+      "mem": 0.4537,
+      "rt": 120.7329,
+      "status": "healthy"
+    },
+    "payments-api": {
+      "cpu": 0.3453,
+      "mem": 0.5155,
+      "rt": null,
+      "status": "healthy"
+    },
+    "payments-db": {
+      "cpu": 0.4473,
+      "mem": 0.6433,
+      "rt": null,
+      "status": "failing"
+    },
+    "worker-node-4": {
+      "cpu": 0.9512,
+      "mem": 0.6381,
+      "rt": null,
+      "status": "failing"
+    }
+  },
+  "email_alert": null,
+  "alert_count": 1
+}

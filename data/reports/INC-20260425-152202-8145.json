@@ -1,0 +1,90 @@
+{
+  "report_id": "INC-20260425-152202-8145",
+  "generated_at": "2026-04-25T15:22:02.300225",
+  "incident": {
+    "id": "INC-20260425-152202-8145",
+    "root_cause": "payments-db",
+    "fault_type": "memory_leak",
+    "severity": "P0",
+    "affected": [
+      "payments-db",
+      "order-service",
+      "cache-service",
+      "api-gateway",
+      "storefront-ui"
+    ],
+    "confidence": 0.95,
+    "reasoning": "The payments-db service has a memory utilization of 0.99 and a restart count of 7, indicating a memory leak. This is the deepest service in the call graph showing abnormal metrics, and its failure is cascading to other services, resulting in a P0 severity incident.",
+    "stakeholder_msg": "The payments-db service is experiencing a memory leak, causing high latency and impacting the entire payment processing workflow. A restart of the service is required to resolve the issue."
+  },
+  "remediation": {
+    "action": "restart_service",
+    "status": "pending_approval",
+    "message": "\u26a0\ufe0f Approval required: restart service on payments-db",
+    "runbook": [
+      "1. kubectl rollout restart deployment/payments-db -n production",
+      "2. Watch pod restart: kubectl get pods -l app=payments-db -w",
+      "3. Verify metrics recover within 2 minutes",
+      "4. If no recovery, escalate to on-call lead"
+    ],
+    "executed_at": null
+  },
+  "metrics_at_detection": {
+    "storefront-ui": {
+      "cpu": 0.268,
+      "mem": 0.4677,
+      "rt": 100.2916,
+      "status": "healthy"
+    },
+    "api-gateway": {
+      "cpu": 0.2905,
+      "mem": 0.3991,
+      "rt": 49.6416,
+      "status": "healthy"
+    },
+    "order-service": {
+      "cpu": 0.2759,
+      "mem": 0.3869,
+      "rt": null,
+      "status": "healthy"
+    },
+    "cache-service": {
+      "cpu": 0.184,
+      "mem": 0.4744,
+      "rt": null,
+      "status": "healthy"
+    },
+    "payments-db": {
+      "cpu": 0.4049,
+      "mem": 0.99,
+      "rt": null,
+      "status": "failing"
+    },
+    "network-switch-03": {
+      "cpu": 0.3,
+      "mem": 0.4,
+      "rt": null,
+      "status": "failing"
+    },
+    "worker-node-7": {
+      "cpu": 0.8617,
+      "mem": 0.4,
+      "rt": null,
+      "status": "failing"
+    },
+    "metrics-exporter": {
+      "cpu": 0.8653,
+      "mem": 0.3839,
+      "rt": null,
+      "status": "failing"
+    },
+    "cron-scheduler": {
+      "cpu": 0.9533,
+      "mem": 0.2111,
+      "rt": null,
+      "status": "failing"
+    }
+  },
+  "email_alert": null,
+  "alert_count": 6
+}
